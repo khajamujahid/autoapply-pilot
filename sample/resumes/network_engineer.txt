@@ -1,0 +1,7 @@
+Jordan Rivera — Network Engineer
+Dallas, TX | jordan.rivera@example.com
+SUMMARY: Network Engineer with 6 years designing, deploying and supporting enterprise LAN/WAN, data center and SD-WAN networks.
+EXPERIENCE
+Senior Network Engineer, Acme Health (2021–present): Cisco Catalyst/Nexus switching, BGP and OSPF routing, Palo Alto firewalls, Meraki SD-WAN rollout to 40 sites, Cisco ISE NAC, wireless (Aruba).
+Network Administrator, Lone Star Logistics (2018–2021): VLANs, VPN, F5 load balancers, SolarWinds monitoring, NOC escalations.
+SKILLS: Cisco, BGP, OSPF, Palo Alto, Fortinet, SD-WAN, Meraki, VPN, VLAN, Wireshark, Python, Ansible, CCNP
