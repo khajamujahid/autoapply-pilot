@@ -6,20 +6,26 @@ class LeverSubmitter(BaseSubmitter):
     submit_selectors = ["#btn-submit", "button[data-qa='btn-submit']", "button[type=submit]"]
 
     def open(self, page):
-        if not self.app.url.rstrip("/").endswith("/apply"):
-            self.app.url = self.app.url.rstrip("/") + "/apply"
+        u = (self.app.apply_url or self.app.url).rstrip("/")
+        self.app.apply_url = u if u.endswith("/apply") else u + "/apply"
         super().open(page)
 
     def fill_form(self, page):
-        p = self.p
+        d = self.d
         self.upload(page, "input[name='resume']", self.resume_pdf)
-        page.wait_for_timeout(2500)  # Lever parses the resume and may prefill
-        self.fill(page, "input[name='name']", f"{p.first_name} {p.last_name}", "name")
-        self.fill(page, "input[name='email']", p.email, "email")
-        self.fill(page, "input[name='phone']", p.phone, "phone")
-        self.fill(page, "input[name='location']", p.location, "location")
-        self.fill(page, "input[name='org']", p.current_company, "org")
-        self.fill(page, "input[name='urls[LinkedIn]']", p.linkedin, "linkedin")
-        self.fill(page, "input[name='urls[GitHub]']", p.github, "github")
-        self.fill(page, "input[name='urls[Portfolio]']", p.website, "portfolio")
-        self.fill(page, "textarea[name='comments']", self.cl, "cover_letter")
+        page.wait_for_timeout(3000)  # Lever parses the resume and may prefill
+        name = f"{d.get('first_name', '')} {d.get('last_name', '')}".strip()
+        for sel, val, lab in (("input[name='name']", name, "name"), ("input[name='email']", d.get("email"), "email"),
+                              ("input[name='phone']", d.get("phone"), "phone"), ("input[name='location']", d.get("location"), "location"),
+                              ("input[name='org']", d.get("current_company"), "org"),
+                              ("input[name='urls[LinkedIn]']", d.get("linkedin"), "linkedin"),
+                              ("input[name='urls[GitHub]']", d.get("github"), "github"),
+                              ("input[name='urls[Portfolio]']", d.get("website"), "portfolio"),
+                              ("textarea[name='comments']", self.ans.cl, "cover_letter")):
+            self.fill(page, sel, val, lab)
+        loc = page.locator("input[name='location']")
+        if loc.count():  # location autocomplete dropdown
+            page.wait_for_timeout(800)
+            opt = page.locator(".dropdown-location, .location-dropdown li, [role=option]").first
+            if opt.count() and opt.is_visible():
+                opt.click()
