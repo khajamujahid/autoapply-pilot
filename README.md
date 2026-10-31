@@ -12,7 +12,8 @@ ApplyPilot finds jobs, scores how well each one matches you, and tailors your re
 - **Accounts:** email/password sign-up and **Sign in with Google**. Every user's data is fully isolated.
 - **Bring your own AI:** pick a provider, paste a key, choose a model, and click **Test connection**. Keys are encrypted at rest (Fernet). One provider layer handles resume parsing, tailoring, cover letters, question answers and match explanations. A built-in **mock** mode works with no key at all.
 - **Profile builder:** upload a PDF or DOCX resume and the AI fills in your profile. Add standard answers (work authorization, sponsorship, relocation, salary, notice, how you heard, and EEO questions, which default to *decline*). An **encrypted credential store** holds Workday logins.
-- **Discover:** search the public Greenhouse, Lever and Ashby job-board APIs for the companies you list, plus Remotive and Arbeitnow. Results are deduplicated and ranked by match score. **Saved searches** can run on a schedule and auto-queue jobs above a score.
+- **Discover (any profession, v1.1):** ApplyPilot reads your resume and works out the roles to search for (software engineer, network engineer, nurse, accountant, electrician... anything), using your own AI key when set and a built-in title/keyword extractor otherwise. It then searches **LinkedIn, Indeed, Glassdoor, ZipRecruiter and Google Jobs** (via the MIT-licensed [python-jobspy](https://github.com/speedyapply/JobSpy)), **The Muse**, **Remotive**, **Arbeitnow**, optional **Adzuna** and **USAJobs** (free keys), and any Greenhouse/Lever/Ashby company boards you add. Results are de-duplicated and ranked by fit. **The only filters are location (or Remote) and date posted.** Override the roles any time with *Profile → Target roles*. Saved searches can run on a schedule and auto-queue jobs above a score.
+- **Application Questions (v1.1):** answer the questions every Workday/Greenhouse/Lever/Ashby/iCIMS form asks once (legal/preferred name, address, links, work authorization, sponsorship, citizenship and export control, EEO with *Decline*, 18+, relocation, remote preference, start date, notice, salary, education, years, previous employment, relatives, non-compete, background check, clearance, languages, how you heard) plus your own custom Q&A. Shown during onboarding after resume upload and editable from Settings. The form-filler matches questions exactly and fuzzily, uses your AI when a key is set, and saves any new question it meets to your Q&A so you answer it only once.
 - **Pipeline:** `QUEUED → OPTIMIZING_RESUME → OPTIMIZING_CL → REVIEW → APPROVED → APPLYING → APPLIED | DRY_RUN_DONE | NEEDS_MANUAL | FAILED`
   - Options: auto-approve above score X, skip below score Y, and a daily limit per user.
   - **CAPTCHAs are never bypassed.** The job becomes **NEEDS_MANUAL** with a link so you can finish it yourself.
@@ -86,6 +87,9 @@ If you host ApplyPilot for other people, put it behind HTTPS (Caddy, nginx or a 
 - Set `ALLOW_SIGNUP=false` after creating your accounts if the app is reachable by others.
 
 ## Configuration (`.env`)
+
+Optional job-source keys (free): `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` (https://developer.adzuna.com) and `USAJOBS_API_KEY` / `USAJOBS_EMAIL` (https://developer.usajobs.gov). Without them those two sources are skipped; all others need no key.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `BASE_URL` | `http://localhost:8077` | Public URL (needed for Google sign-in) |

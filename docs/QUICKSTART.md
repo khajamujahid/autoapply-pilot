@@ -19,7 +19,11 @@ In **Settings**, choose Grok, Gemini, Claude, OpenAI or a custom OpenAI-compatib
 ![Settings](screenshots/settings.svg)
 
 ## 5. Find jobs
-On **Discover**, enter keywords and the companies you want, for example `greenhouse:gitlab`, `lever:palantir` or `ashby:ramp`. Remotive (remote jobs) and Arbeitnow can also be searched. Results are ranked by match score. Tick jobs and choose **Queue**. You can also save the search to run every N hours and auto-queue strong matches.
+After you upload your resume you land on **Application Questions** (also under *Settings → Edit application questions* and the *Questions* tab). Fill it once; new questions met while applying show up there as *pending* so you answer them only once.
+
+![Application Questions](screenshots/questions.svg)
+
+On **Discover**, ApplyPilot shows the roles it inferred from your resume (change them in *Profile → Target roles*). Pick a **location** (or Remote) and **date posted**, then click **Find my jobs**. It searches LinkedIn, Indeed, Glassdoor, ZipRecruiter, Google Jobs, The Muse, Remotive, Arbeitnow (plus Adzuna/USAJobs if you add free keys, and any company boards you list under *Optional*). The table under the button shows how many jobs each source returned and matched. Tick jobs and choose **Queue**. You can save the search to run every N hours and auto-queue strong matches.
 
 ![Discover](screenshots/discover.svg)
 
