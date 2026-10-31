@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}How it works{% endblock %}{% block body %}
+<h1>How {{ APP_NAME }} works</h1><p class="sub">Self-hosted. Your data and keys stay in <code>./data</code> on your machine.</p>
+<div class="card"><pre>
+ Browser ──► FastAPI web app (auth, pages, JSON)          ./data/app.db (SQLite or Postgres)
+                 │                                          ./data/uploads   resumes
+                 ▼                                          ./data/artifacts tailored PDFs + screenshots
+          Worker (in-process thread or separate container)
+   ┌──────────── pipeline per application ───────────────────────────────────────┐
+   │ QUEUED → fetch JD + detect ATS → match score → OPTIMIZING_RESUME (PDF)      │
+   │        → OPTIMIZING_CL → REVIEW ──you approve / auto-approve≥X──► APPROVED  │
+   │        → APPLYING (Playwright) → APPLIED | DRY_RUN_DONE | NEEDS_MANUAL | FAILED │
+   └──────────────────────────────────────────────────────────────────────────────┘
+   Scheduler: saved searches every N hours → Discover (Greenhouse/Lever/Ashby boards, Remotive, Arbeitnow)
+   AI layer:  one Provider (Grok · Gemini · Claude · OpenAI · custom · mock) for parsing, tailoring,
+              cover letters, question answers and match explanations.
+</pre></div>
+<div class="grid g3"><div class="card"><h2>Answers</h2><p class="small">Form questions are answered from your saved profile answers first (work authorization, sponsorship, EEO = decline…), and only unknown questions go to your AI.</p></div>
+<div class="card"><h2>Safety</h2><p class="small">Dry run on by default. Review step on by default. Daily limit per user. CAPTCHAs are never bypassed: the job becomes NEEDS MANUAL with a link.</p></div>
+<div class="card"><h2>Privacy</h2><p class="small">Each user only sees their own data. AI keys and site passwords are Fernet-encrypted with the key in <code>.env</code> / <code>data/.encryption_key</code>.</p></div></div>
+{% endblock %}

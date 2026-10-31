@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block title %}Settings{% endblock %}{% block body %}
+<h1>Settings</h1><p class="sub">Bring your own AI and control how {{ APP_NAME }} applies.</p>
+<form method="post" action="/settings" id="sf"><div class="grid g2"><div class="card"><h2>🤖 AI provider</h2>
+<label>Provider</label><select name="ai_provider" id="prov">{% for k,p in PROVIDERS.items() %}<option value="{{ k }}" {{ 'selected' if st.ai_provider==k }} data-model="{{ p.model }}" data-url="{{ p.base_url }}">{{ p.label }}</option>{% endfor %}</select>
+<label>API key {% if has_key %}<span class="pill s-APPLIED">saved · encrypted</span>{% endif %}</label><input name="ai_api_key" id="key" type="password" placeholder="{{ 'Leave blank to keep the saved key' if has_key else 'Paste your API key' }}" autocomplete="off">
+{% if has_key %}<label><input type="checkbox" name="clear_key" value="true">Remove saved key</label>{% endif %}
+<label>Model</label><input name="ai_model" id="model" value="{{ st.ai_model }}">
+<div id="urlrow"><label>Base URL (custom OpenAI-compatible endpoint, e.g. Ollama http://localhost:11434/v1)</label><input name="ai_base_url" id="url" value="{{ st.ai_base_url }}"></div>
+<div class="row" style="margin-top:12px"><button type="button" class="btn sec" onclick="testAI()">Test connection</button><span id="tr" class="small"></span></div>
+<p class="small muted">Used for resume parsing, tailoring, cover letters, custom questions and match explanations. Keys are encrypted at rest and only sent to the provider you choose.</p></div>
+<div class="card"><h2>⚙️ Auto-apply</h2>
+<label><input type="checkbox" name="dry_run" value="true" {{ 'checked' if st.dry_run }}>Dry run: fill forms and screenshot, never click submit</label>
+<label><input type="checkbox" name="require_review" value="true" {{ 'checked' if st.require_review }}>Require my review before applying</label>
+<label>Auto-approve when match score ≥ (0 = off)</label><input name="auto_approve_above" type="number" min="0" max="100" value="{{ st.auto_approve_above|int }}">
+<label>Skip jobs scoring below</label><input name="min_match_score" type="number" min="0" max="100" value="{{ st.min_match_score|int }}">
+<label>Daily application limit</label><input name="daily_limit" type="number" min="0" max="200" value="{{ st.daily_limit }}"></div></div>
+<button class="btn">Save settings</button></form>
+<script>
+const prov=document.getElementById('prov'),model=document.getElementById('model'),url=document.getElementById('url');
+function sync(first){const o=prov.selectedOptions[0];document.getElementById('urlrow').style.display=prov.value==='custom'?'':'none';
+ if(!first||!model.value){model.placeholder=o.dataset.model;if(!first)model.value=''}}
+prov.onchange=()=>sync(false);sync(true);
+async function testAI(){const tr=document.getElementById('tr');tr.textContent='Testing…';
+ const r=await fetch('/api/settings/test-ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ai_provider:prov.value,ai_api_key:document.getElementById('key').value,ai_model:model.value,ai_base_url:url.value})});
+ const j=await r.json();tr.textContent=(j.ok?'✅ ':'❌ ')+j.message;tr.style.color=j.ok?'#86efac':'#fca5a5'}
+</script>
+{% endblock %}
