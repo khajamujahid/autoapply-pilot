@@ -14,6 +14,7 @@ def _text(html: str) -> str:
 
 
 def fetch_job(url: str) -> dict:
+    """Returns ats, company, title, location, description, apply_url."""
     ats, ids = detect(url)
     out = {"ats": ats, "company": "", "title": "", "location": "", "description": "", "apply_url": url}
     with httpx.Client(headers=UA, timeout=25, follow_redirects=True) as c:
