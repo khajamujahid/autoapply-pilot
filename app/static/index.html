@@ -1,0 +1,56 @@
+<!doctype html><html><head><meta charset="utf-8"><title>autoapply-pilot</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#0f1115;color:#e6e6e6}
+header{padding:14px 24px;background:#171a21;display:flex;gap:16px;align-items:center}
+h1{font-size:18px;margin:0}.badge{padding:3px 8px;border-radius:10px;font-size:12px;background:#2b3240}
+main{display:grid;grid-template-columns:360px 1fr;gap:20px;padding:20px}
+section{background:#171a21;border-radius:10px;padding:16px}
+label{display:block;font-size:12px;color:#9aa;margin-top:8px}
+input,textarea,select{width:100%;box-sizing:border-box;background:#0f1115;color:#eee;border:1px solid #333;border-radius:6px;padding:6px}
+button{background:#3b82f6;color:#fff;border:0;border-radius:6px;padding:7px 12px;cursor:pointer;margin-top:8px}
+button.sec{background:#374151}table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:6px;border-bottom:1px solid #262b35;text-align:left;vertical-align:top}
+.st{font-weight:600}.APPLIED,.DRY_RUN_DONE{color:#4ade80}.FAILED{color:#f87171}.REVIEW{color:#facc15}
+.counts span{margin-right:10px;font-size:12px}#detail{white-space:pre-wrap;font-size:12px}
+img{max-width:100%;border:1px solid #333;margin-top:6px}
+</style></head><body>
+<header><h1>autoapply-pilot</h1><span id="cfg" class="badge"></span></header>
+<main>
+<div>
+<section><h3>Profile</h3><div id="pf"></div><button onclick="saveProfile()">Save profile</button>
+<label>Resume (PDF or TXT)</label><input type="file" id="resume"><button onclick="upload()">Upload resume</button>
+<div id="rs" style="font-size:12px;margin-top:6px"></div></section>
+</div>
+<div>
+<section><h3>Add job URLs (one per line)</h3><textarea id="urls" rows="4" placeholder="https://job-boards.greenhouse.io/company/jobs/123"></textarea>
+<button onclick="addUrls()">Queue</button></section>
+<section style="margin-top:20px"><h3>Applications</h3><div class="counts" id="counts"></div>
+<table><thead><tr><th>#</th><th>Job</th><th>ATS</th><th>Match</th><th>Status</th><th></th></tr></thead><tbody id="rows"></tbody></table></section>
+<section style="margin-top:20px"><h3>Detail</h3><div id="detail">Select an application.</div></section>
+</div></main>
+<script>
+const F=["first_name","last_name","email","phone","location","country","linkedin","github","website","current_company","skills","years_experience","work_authorized","needs_sponsorship","workday_email","workday_password"];
+const j=(u,o)=>fetch(u,o).then(r=>r.json());
+async function load(){const c=await j('/api/v1/config');cfg.textContent=`${c.dry_run?'DRY-RUN (no submit)':'LIVE SUBMIT'} · review ${c.require_review?'on':'off'} · LLM ${c.llm}`;
+const p=await j('/api/v1/profile');pf.innerHTML=F.map(f=>`<label>${f.replace(/_/g,' ')}</label><input id="f_${f}" ${f.includes('password')?'type=password':''} value="${(p[f]??'').toString().replace(/"/g,'&quot;')}">`).join('');
+rs.textContent=p.resume_uploaded?`Resume loaded (${p.resume_chars} chars)`:'No resume yet';refresh()}
+async function saveProfile(){const b={};F.forEach(f=>b[f]=document.getElementById('f_'+f).value);b.years_experience=parseFloat(b.years_experience)||0;
+await j('/api/v1/profile',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});load()}
+async function upload(){const fd=new FormData();fd.append('file',resume.files[0]);await fetch('/api/v1/profile/resume',{method:'POST',body:fd});load()}
+async function addUrls(){const r=await j('/api/v1/applications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls:urls.value.split('\n')})});
+const bad=r.filter(x=>!x.ok);if(bad.length)alert(bad.map(x=>x.url+': '+x.code).join('\n'));urls.value='';refresh()}
+async function refresh(){const [l,c]=await Promise.all([j('/api/v1/applications/list'),j('/api/v1/applications/list/counts')]);
+counts.innerHTML=Object.entries(c).map(([k,v])=>`<span class="${k}">${k}: ${v}</span>`).join('');
+rows.innerHTML=l.map(a=>`<tr><td>${a.id}</td><td><a style="color:#93c5fd" href="${a.url}" target=_blank>${a.title||a.url.slice(0,60)}</a><br><small>${a.company} ${a.location}</small></td><td>${a.ats}</td><td>${a.match_score||''}</td>
+<td class="st ${a.status}">${a.status}${a.error?'<br><small>'+a.error+'</small>':''}</td><td><button class=sec onclick="show(${a.id})">Open</button>
+${a.status=='REVIEW'?`<button onclick="approve(${a.id})">Approve</button>`:''}${a.status=='FAILED'?`<button class=sec onclick="act(${a.id},'retry')">Retry</button>`:''}</td></tr>`).join('')}
+async function show(id){const a=await j('/api/v1/applications/'+id);
+detail.innerHTML=`<b>${a.title}</b> — ${a.company} (${a.status})<br>Match: ${a.match_score} · matched: ${(a.match_details.matched_skills||[]).join(', ')} · missing: ${(a.match_details.missing_skills||[]).join(', ')}
+<h4>Tailored resume</h4><textarea id="tr" rows="10">${a.tailored_resume}</textarea><h4>Cover letter</h4><textarea id="tc" rows="8">${a.cover_letter}</textarea>
+${a.status=='REVIEW'?`<button onclick="approve(${a.id},true)">Approve with edits</button>`:''}
+<h4>Log</h4>${(a.log||[]).join('\n')}<h4>Screenshots</h4>${a.screenshots.map(s=>`<a href="${s}" target=_blank><img src="${s}"></a>`).join('')}`}
+async function approve(id,edits){const body=edits?{tailored_resume:tr.value,cover_letter:tc.value}:{};
+await j(`/api/v1/applications/${id}/approve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});refresh()}
+async function act(id,a){await j(`/api/v1/applications/${id}/${a}`,{method:'POST'});refresh()}
+load();setInterval(refresh,4000);
+</script></body></html>
