@@ -1,115 +1,173 @@
-"""DB-backed queue worker (no Redis needed). Run standalone: python -m app.worker"""
+"""DB-backed job queue + state machine + scheduler. Runs inside the web process or standalone: python -m app.worker"""
 import datetime as dt
 import logging
 import threading
 import time
-from sqlalchemy import update, select, func
-from .config import DATA_DIR, DRY_RUN, REQUIRE_REVIEW, MIN_MATCH_SCORE, DAILY_QUOTA
-from .db import SessionLocal, Application, Profile, Status, init_db, now
+from sqlalchemy import select, update, func
+from .ai import Provider, AIConfig, AIError
+from .answerer import Answerer
+from .crypto import dec
+from .db import SessionLocal, Application, Profile, Settings, Credential, init_db, now
+from .discovery import due_saved_searches, run_saved_search
 from .fetcher import fetch_job
 from .matcher import score
-from . import llm
 from .pdf import text_to_pdf
-from .submitters import SUBMITTERS, SubmitError
+from .profile import profile_text, full_name
+from .config import DATA_DIR
+from .submitters import SUBMITTERS, SubmitError, NeedsManual
 
 log = logging.getLogger("worker")
 
 
-def _claim(s, frm: Status, to: Status):
-    """Atomically move one job frm->to; returns the Application or None."""
-    a = s.scalars(select(Application).where(Application.status == frm.value).order_by(Application.id)).first()
+def note(a, msg):
+    a.log = (a.log or []) + [f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {msg}"]
+
+
+def claim(s, frm, to, exclude_users=()):
+    q = select(Application).where(Application.status == frm).order_by(Application.id)
+    if exclude_users:
+        q = q.where(Application.user_id.not_in(exclude_users))
+    a = s.scalars(q).first()
     if not a:
         return None
-    n = s.execute(update(Application).where(Application.id == a.id, Application.status == frm.value)
-                  .values(status=to.value, updated_at=now())).rowcount
-    s.commit()
-    if not n:
-        return None
-    s.refresh(a)
-    return a
+    if not s.execute(update(Application).where(Application.id == a.id, Application.status == frm)
+                     .values(status=to, updated_at=now())).rowcount:
+        s.commit(); return None
+    s.commit(); s.refresh(a); return a
 
 
-def _note(a, msg):
-    a.log = (a.log or []) + [f"{dt.datetime.now().strftime('%H:%M:%S')} {msg}"]
+def applied_today(s, user_id):
+    since = now() - dt.timedelta(days=1)
+    return s.scalar(select(func.count()).select_from(Application).where(
+        Application.user_id == user_id, Application.status.in_(["APPLIED", "NEEDS_MANUAL"]), Application.applied_at >= since)) or 0
 
 
 def prepare(a, s):
-    p = s.get(Profile, 1)
-    if not p.resume_text:
-        raise SubmitError("PROFILE_INCOMPLETE", "Upload a resume first")
-    job = fetch_job(a.url)
-    a.ats, a.company, a.title, a.location = job["ats"], job["company"], job["title"], job["location"]
-    a.job_description, a.url = job["description"], job["apply_url"]
-    m = score(p, a.title, a.job_description)
+    st, prof = s.get(Settings, a.user_id), s.get(Profile, a.user_id)
+    if not (prof.resume_text or (prof.data or {}).get("email")):
+        raise SubmitError("PROFILE_INCOMPLETE", "Upload a resume and complete your profile first")
+    ai = Provider(AIConfig.from_settings(st))
+    if not a.job_description or not a.title:
+        job = fetch_job(a.url)
+        a.ats = job["ats"] if job["ats"] != "unknown" else a.ats
+        a.company = a.company or job["company"]; a.title = a.title or job["title"]; a.location = a.location or job["location"]
+        a.job_description = job["description"] or a.job_description; a.apply_url = job["apply_url"]
+    if a.ats == "unknown":
+        from .ats import detect
+        a.ats = detect(a.apply_url or a.url)[0]
+    m = score(prof, a.title, a.job_description)
     a.match_score, a.match_details = m["score"], m
-    _note(a, f"fetched JD ({len(a.job_description)} chars), ats={a.ats}, match={m['score']}")
-    if m["score"] < MIN_MATCH_SCORE:
-        a.status = Status.SKIPPED.value; _note(a, f"below MIN_MATCH_SCORE {MIN_MATCH_SCORE}"); s.commit(); return
+    try:
+        a.match_explanation = ai.explain_match(profile_text(prof), a.title, a.job_description, m)
+    except AIError as e:
+        a.match_explanation = f"(AI unavailable: {e})"
+    note(a, f"Job fetched ({len(a.job_description)} chars). ATS={a.ats}. Match={m['score']}")
+    if st.min_match_score and m["score"] < st.min_match_score:
+        a.status = "SKIPPED"; note(a, f"Below your minimum match score {st.min_match_score}"); s.commit(); return
+    a.status = "OPTIMIZING_RESUME"; s.commit()
+    a.tailored_resume = ai.tailor_resume(profile_text(prof), a.title, a.company, a.job_description, m)
+    a.tailored_resume_pdf = text_to_pdf(a.tailored_resume, str(_art(a) / "tailored_resume.pdf"))
+    note(a, f"Resume tailored with {st.ai_provider}")
+    a.status = "OPTIMIZING_CL"; s.commit()
+    a.cover_letter = ai.cover_letter(profile_text(prof), full_name(prof), a.title, a.company, a.job_description, m)
+    note(a, "Cover letter written")
+    auto = st.auto_approve_above and m["score"] >= st.auto_approve_above
+    if not st.require_review or auto:
+        a.status = "APPROVED"; note(a, "Auto-approved" + (f" (score >= {st.auto_approve_above})" if auto else ""))
+    else:
+        a.status = "REVIEW"; note(a, "Waiting for your review")
     s.commit()
-    a.status = Status.OPTIMIZING_RESUME.value; s.commit()
-    a.tailored_resume = llm.tailor_resume(p, a.title, a.company, a.job_description, m)
-    a.tailored_resume_pdf = text_to_pdf(a.tailored_resume, str(DATA_DIR / "artifacts" / f"resume_app_{a.id}.pdf"))
-    _note(a, "resume tailored" + ("" if llm.LLM_API_KEY else " (mock LLM)"))
-    a.status = Status.OPTIMIZING_CL.value; s.commit()
-    a.cover_letter = llm.cover_letter(p, a.title, a.company, a.job_description, m)
-    _note(a, "cover letter written")
-    a.status = (Status.REVIEW if REQUIRE_REVIEW else Status.APPROVED).value
-    s.commit()
+
+
+def _art(a):
+    p = DATA_DIR / "artifacts" / f"u{a.user_id}" / f"app_{a.id}"; p.mkdir(parents=True, exist_ok=True); return p
 
 
 def apply(a, s):
-    p = s.get(Profile, 1)
+    st, prof = s.get(Settings, a.user_id), s.get(Profile, a.user_id)
     cls = SUBMITTERS.get(a.ats)
     if not cls:
-        raise SubmitError("UNSUPPORTED_ATS", f"No submitter for ATS '{a.ats}'")
-    today = s.scalar(select(func.count()).select_from(Application).where(
-        Application.status == Status.APPLIED.value,
-        Application.updated_at >= dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)))
-    if not DRY_RUN and today >= DAILY_QUOTA:
-        raise SubmitError("OUT_OF_APPLICATIONS", "Daily quota reached")
+        a.status = "NEEDS_MANUAL"; a.error = f"UNSUPPORTED_ATS: no auto-apply for '{a.ats}'. Apply manually: {a.apply_url or a.url}"
+        note(a, a.error); s.commit(); return
+    creds = {c.site: (c.username, dec(c.password_enc)) for c in s.scalars(select(Credential).where(Credential.user_id == a.user_id))}
+    ai = Provider(AIConfig.from_settings(st))
+    ans = Answerer(prof, ai, a.cover_letter)
     a.attempts += 1
-    res = cls(a, p, a.tailored_resume_pdf or p.resume_path, a.cover_letter, dry_run=DRY_RUN).run()
+    resume = a.tailored_resume_pdf or prof.resume_path
+    try:
+        res = cls(a, prof, ans, resume, creds, dry_run=st.dry_run).run()
+    finally:
+        a.answers_used = ans.used
     a.screenshots = (a.screenshots or []) + res["screenshots"]
-    _note(a, f"filled: {', '.join(res['filled'])}")
-    a.status = (Status.APPLIED if res["submitted"] else Status.DRY_RUN_DONE).value
-    _note(a, "SUBMITTED" if res["submitted"] else "dry-run: form filled, NOT submitted")
+    note(a, "Filled: " + ", ".join(res["filled"]))
+    if res["submitted"]:
+        a.status, a.applied_at = "APPLIED", now()
+        note(a, "SUBMITTED" + ("" if res["confirmed"] else " (no confirmation text detected, check screenshot)"))
+    else:
+        a.status = "DRY_RUN_DONE"; note(a, "Dry run: form filled and screenshotted, NOT submitted")
     s.commit()
+
+
+def _run(fn, a, s):
+    try:
+        fn(a, s)
+    except NeedsManual as e:
+        a.screenshots = (a.screenshots or []) + e.shots
+        a.status, a.error, a.applied_at = "NEEDS_MANUAL", f"{e.code}: {e} → {a.apply_url or a.url}", now()
+        note(a, a.error); s.commit()
+    except SubmitError as e:
+        a.screenshots = (a.screenshots or []) + e.shots
+        a.status, a.error = "FAILED", f"{e.code}: {e}"; note(a, a.error); s.commit()
+    except Exception as e:
+        log.exception("application %s failed", a.id)
+        s.rollback(); a = s.get(Application, a.id)
+        a.status, a.error = "FAILED", f"ERROR: {str(e)[:400]}"; note(a, a.error); s.commit()
 
 
 def tick():
     did = False
-    for frm, to, fn in ((Status.QUEUED, Status.QUEUED, prepare), (Status.APPROVED, Status.APPLYING, apply)):
-        with SessionLocal() as s:
-            if frm == Status.QUEUED:
-                a = s.scalars(select(Application).where(Application.status == "QUEUED").order_by(Application.id)).first()
-                if a:  # move off QUEUED immediately so it isn't picked twice
-                    a = _claim(s, Status.QUEUED, Status.OPTIMIZING_RESUME)
-            else:
-                a = _claim(s, frm, to)
-            if not a:
-                continue
-            did = True
-            try:
-                fn(a, s)
-            except SubmitError as e:
-                a.screenshots = (a.screenshots or []) + getattr(e, "shots", [])
-                a.status, a.error = Status.FAILED.value, f"{e.code}: {e}"; _note(a, a.error); s.commit()
-            except Exception as e:
-                log.exception("job %s failed", a.id)
-                a.status, a.error = Status.FAILED.value, f"ERROR: {str(e)[:400]}"; _note(a, a.error); s.commit()
+    with SessionLocal() as s:
+        a = claim(s, "QUEUED", "OPTIMIZING_RESUME")
+        if a:
+            did = True; _run(prepare, a, s)
+    with SessionLocal() as s:
+        over = [u for (u, lim) in s.execute(select(Settings.user_id, Settings.daily_limit)).all()
+                if not s.get(Settings, u).dry_run and applied_today(s, u) >= lim]
+        a = claim(s, "APPROVED", "APPLYING", over)
+        if a:
+            did = True; _run(apply, a, s)
     return did
 
 
-def loop(stop: threading.Event | None = None):
+_last_sched = 0.0
+
+
+def schedule_tick():
+    global _last_sched
+    if time.time() - _last_sched < 60:
+        return
+    _last_sched = time.time()
+    for ss_id in due_saved_searches():
+        try:
+            n, errs = run_saved_search(ss_id); log.info("saved search %s: %s new, errors=%s", ss_id, n, errs)
+        except Exception:
+            log.exception("saved search %s failed", ss_id)
+
+
+def loop(stop=None):
     while not (stop and stop.is_set()):
-        if not tick():
-            time.sleep(2)
+        try:
+            schedule_tick()
+            if not tick():
+                time.sleep(2)
+        except Exception:
+            log.exception("worker loop error"); time.sleep(5)
 
 
 def start_background():
-    t = threading.Thread(target=loop, daemon=True); t.start(); return t
+    t = threading.Thread(target=loop, daemon=True, name="worker"); t.start(); return t
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    init_db(); log.info("worker started (DRY_RUN=%s)", DRY_RUN); loop()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    init_db(); log.info("worker started"); loop()
