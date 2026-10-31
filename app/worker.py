@@ -93,13 +93,24 @@ def apply(a, s):
     ai = Provider(AIConfig.from_settings(st))
     ans = Answerer(prof, ai, a.cover_letter)
     a.attempts += 1
-    resume = a.tailored_resume_pdf or prof.resume_path
+    # With the offline mock provider the "tailored" text is just a header + raw text, so send the original resume file.
+    resume = prof.resume_path if st.ai_provider == "mock" and prof.resume_path else (a.tailored_resume_pdf or prof.resume_path)
     try:
         res = cls(a, prof, ans, resume, creds, dry_run=st.dry_run).run()
     finally:
         a.answers_used = ans.used
+        try:
+            from .profile import add_unknown_questions
+            src = f"{a.company} – {a.title}"
+            n = add_unknown_questions(prof, [dict(u, source=src) for u in ans.unknown])
+            if n:
+                note(a, f"Saved {n} new question(s) to your Application Questions → answer them once at /questions")
+        except Exception:
+            log.exception("saving unknown questions failed")
     a.screenshots = (a.screenshots or []) + res["screenshots"]
     note(a, "Filled: " + ", ".join(res["filled"]))
+    if res.get("missing"):
+        note(a, "Required fields still blank: " + " | ".join(res["missing"]))
     if res["submitted"]:
         a.status, a.applied_at = "APPLIED", now()
         note(a, "SUBMITTED" + ("" if res["confirmed"] else " (no confirmation text detected, check screenshot)"))

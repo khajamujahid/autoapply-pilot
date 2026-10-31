@@ -1,20 +1,24 @@
 {% extends "base.html" %}{% block title %}Discover{% endblock %}{% block body %}
-<h1>Discover jobs</h1><p class="sub">Search public job boards and your target companies' career pages. Results are de-duplicated and ranked by how well they match your profile.</p>
-<div class="grid g2"><div class="card"><h2>Search</h2><form method="post" action="/jobs/search">
-<div class="grid g2"><div><label>Keywords (space = AND, use | for OR)</label><input name="keywords" placeholder="python backend|platform"></div>
-<div><label>Location contains</label><input name="location" placeholder="New York"></div></div>
+<h1>Discover jobs</h1><p class="sub">ApplyPilot reads your resume, works out which roles fit you (any profession), and searches LinkedIn, Indeed, Glassdoor, ZipRecruiter, Google Jobs, The Muse, Remotive, Arbeitnow and more. Results are de-duplicated and ranked by fit. You only choose where and how recent.</p>
+<div class="grid g2"><div class="card"><h2>Search</h2>
+<p class="small">Searching for: {% for r in sp.roles %}<span class="pill">{{ r }}</span> {% else %}<span class="muted">upload a resume on your Profile first</span>{% endfor %}
+<span class="muted">· {{ sp.seniority }} · <a href="/profile">change roles</a> (Profile → Target roles). With an AI key in Settings, your AI picks the roles.</span></p>
+<form method="post" action="/jobs/search">
+<div class="grid g2"><div><label>Location (city, state, or "Remote")</label><input name="location" placeholder="Dallas, TX  or  Remote"></div>
+<div><label>Date posted</label><select name="days"><option value="1">Past 24 hours</option><option value="3">Past 3 days</option><option value="7" selected>Past week</option><option value="14">Past 2 weeks</option><option value="30">Past month</option></select></div></div>
 <label><input type="checkbox" name="remote_only" value="true">Remote only</label>
-<label>Target companies, one per line. Use <code>greenhouse:slug</code>, <code>lever:slug</code>, <code>ashby:slug</code>, or just the slug to auto-detect</label>
-<textarea name="companies" rows="4" placeholder="greenhouse:gitlab&#10;lever:palantir&#10;ashby:ramp"></textarea>
-<label>Sources</label><div class="row"><label><input type="checkbox" name="sources" value="boards" checked>Company boards (Greenhouse/Lever/Ashby)</label>
-<label><input type="checkbox" name="sources" value="remotive" checked>Remotive (remote jobs)</label><label><input type="checkbox" name="sources" value="arbeitnow">Arbeitnow</label></div>
-<details style="margin-top:10px"><summary class="small">Save as a scheduled search</summary>
-<div class="grid g3"><div><label>Name</label><input name="save_name" placeholder="Backend NYC"></div>
+<details style="margin-top:10px"><summary class="small">Optional: also check specific company career boards / save as scheduled search</summary>
+<label>Target companies (<code>greenhouse:slug</code>, <code>lever:slug</code>, <code>ashby:slug</code>)</label>
+<textarea name="companies" rows="3" placeholder="greenhouse:gitlab&#10;lever:palantir"></textarea>
+<div class="grid g3"><div><label>Save as (name)</label><input name="save_name" placeholder="My daily search"></div>
 <div><label>Run every (hours, 0 = manual)</label><input name="every_hours" type="number" value="24" min="0"></div>
 <div><label>Auto-queue jobs scoring ≥ (0 = off)</label><input name="auto_queue_above" type="number" value="0" min="0" max="100"></div></div></details>
-<button class="btn" style="margin-top:14px">Search</button></form></div>
+<button class="btn" style="margin-top:14px">Find my jobs</button></form>
+{% if last %}<div class="small" style="margin-top:12px"><b>Last search</b> ({{ last.method }}; {{ last.where }}; past {{ last.days }}d) — roles: {{ last.roles|join(', ') }}
+<table class="small"><tr><th>Source</th><th>Fetched</th><th>Matched</th></tr>{% for k,v in last.raw.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td><td>{{ last.kept.get(k,0) }}</td></tr>{% endfor %}</table></div>{% endif %}
+</div>
 <div class="card"><h2>Saved searches</h2><table class="small"><tr><th>Name</th><th>Every</th><th>Last run</th><th></th></tr>
-{% for ss in searches %}<tr><td><b>{{ ss.name }}</b><div class="muted">{{ ss.keywords }} {{ ss.companies.replace('\n',', ')[:60] }}</div></td><td>{{ ss.every_hours or 'manual' }}{{ 'h' if ss.every_hours }}</td>
+{% for ss in searches %}<tr><td><b>{{ ss.name }}</b><div class="muted">{{ ss.location or 'Anywhere' }}{{ ' · remote' if ss.remote_only }} · {{ ss.sources.replace('auto;','') }}</div></td><td>{{ ss.every_hours or 'manual' }}{{ 'h' if ss.every_hours }}</td>
 <td class="muted">{{ ss.last_run.strftime('%b %d %H:%M') if ss.last_run else 'never' }}</td>
 <td class="row"><form method="post" action="/jobs/saved/{{ ss.id }}/run"><button class="btn sec sm">Run now</button></form><form method="post" action="/jobs/saved/{{ ss.id }}/delete"><button class="btn sec sm">✕</button></form></td></tr>
 {% else %}<tr><td class="muted" colspan="4">No saved searches yet.</td></tr>{% endfor %}</table></div></div>
@@ -25,6 +29,6 @@
 <td><a href="/applications/{{ a.id }}"><b>{{ a.title }}</b></a><div class="small muted">{{ a.company }} · {{ a.location }}</div></td>
 <td class="small">{{ a.source }}{% if a.ats in ['greenhouse','lever','ashby','workday'] %} · <span class="pill">auto-apply</span>{% endif %}</td>
 <td><a class="btn sec sm" href="{{ a.url }}" target="_blank">View ↗</a></td></tr>
-{% else %}<tr><td colspan="5" class="muted">Run a search to see jobs here.</td></tr>{% endfor %}</tbody></table>
+{% else %}<tr><td colspan="5" class="muted">Click "Find my jobs" to see jobs here.</td></tr>{% endfor %}</tbody></table>
 {% if found %}<div class="row" style="margin-top:10px"><select name="action" style="max-width:220px"><option value="queue">Queue selected (tailor + apply)</option><option value="delete">Dismiss selected</option></select><button class="btn">Go</button></div>{% endif %}</form></div>
 {% endblock %}

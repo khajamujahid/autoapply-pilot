@@ -8,6 +8,7 @@ class Answerer:
         self.prof, self.ai, self.cl = prof, provider, cover_letter
         self.summary = profile_summary(prof)
         self.used = []   # [{question, answer, via}]
+        self.unknown = []  # questions to save to the user's Q&A so they answer once
 
     def _rec(self, q, a, via):
         self.used.append({"question": q[:200], "answer": a if isinstance(a, str) else ", ".join(a), "via": via})
@@ -23,9 +24,12 @@ class Answerer:
         try:
             a = self.ai.answer(question, None, self.summary)
         except AIError as e:
-            self.used.append({"question": question[:200], "answer": "", "via": f"ai_error: {e}"}); return None
+            self.used.append({"question": question[:200], "answer": "", "via": f"ai_error: {e}"})
+            self.unknown.append({"q": question, "a": "", "via": "pending"}); return None
         if a and a.strip().upper() != "N/A":
+            self.unknown.append({"q": question, "a": a.strip(), "via": "ai (review)"})
             return self._rec(question, a.strip(), "ai")
+        self.unknown.append({"q": question, "a": "", "via": "pending"})
         return None
 
     def choose(self, question: str, options: list[str], multi=False):
@@ -38,9 +42,12 @@ class Answerer:
         try:
             a = self.ai.answer(question, opts, self.summary, multi)
         except AIError as e:
-            self.used.append({"question": question[:200], "answer": "", "via": f"ai_error: {e}"}); return None
+            self.used.append({"question": question[:200], "answer": "", "via": f"ai_error: {e}"})
+            self.unknown.append({"q": question, "a": "", "options": opts, "via": "pending"}); return None
         if multi:
             a = [x for x in (a if isinstance(a, list) else [a]) if x in opts] or None
         else:
             a = a if a in opts else next((o for o in opts if a and a.lower() in o.lower()), None)
+        self.unknown.append({"q": question, "a": (", ".join(a) if isinstance(a, list) else a) or "", "options": opts,
+                             "via": "ai (review)" if a else "pending"})
         return self._rec(question, a, "ai") if a else None

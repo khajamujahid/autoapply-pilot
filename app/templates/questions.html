@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block title %}Application Questions{% endblock %}{% block body %}
+<h1>Application Questions</h1>
+<p class="sub">{% if onboarding %}<b>Step 2 of 2.</b> {% endif %}Answer once. ApplyPilot reuses these on every Workday, Greenhouse, Lever, Ashby and iCIMS form (exact and fuzzy question matching, plus your AI when a key is set). New questions found while applying are added to <b>Your custom Q&amp;A</b> below so you only answer them once.</p>
+{% if pending %}<div class="card" style="border-color:#D90429"><b>{{ pending }} new question(s) from recent applications need an answer</b> — see "Your custom Q&amp;A" below.</div>{% endif %}
+<form method="post" action="/questions"><input type="hidden" name="onboarding" value="{{ onboarding }}">
+<div class="grid g2">{% for sec, fields in SECTIONS %}<div class="card"><h2>{{ sec }}</h2>
+{% if 'EEO' in sec %}<p class="small muted">Voluntary. "Decline to self-identify" is always available and never affects your application.</p>{% endif %}
+<div class="grid g2">{% for k,label,opts in fields %}{% set v = d.get(k[2:],'') if k.startswith('d:') else ans.get(k,'') %}
+<div><label>{{ label }}</label>{% if opts %}<select name="{{ k }}">{% for o in opts %}<option value="{{ o }}" {{ 'selected' if v==o }}>{{ o or '—' }}</option>{% endfor %}</select>
+{% else %}<input name="{{ k }}" value="{{ v }}">{% endif %}</div>{% endfor %}</div></div>{% endfor %}</div>
+<div class="card"><h2>Your custom Q&amp;A</h2><p class="small muted">Any question + your answer. For multiple choice, type the option text. Rows marked <span class="pill">pending</span> came from applications and need your answer; <span class="pill">ai (review)</span> were answered by your AI — check them.</p>
+<table id="qa"><tr><th style="width:50%">Question</th><th>Answer</th><th></th></tr>
+{% for x in qa %}<tr><td><input name="qa_q" value="{{ x.q }}">{% if x.source %}<div class="small muted">from {{ x.source }}{% if x.options %} · options: {{ x.options|join(' / ') }}{% endif %}</div>{% endif %}</td>
+<td><input name="qa_a" value="{{ x.a }}" placeholder="Your answer"></td><td>{% if x.via in ['pending','ai (review)'] %}<span class="pill">{{ x.via }}</span>{% endif %} <button type="button" class="btn sec sm" onclick="this.closest('tr').remove()">✕</button></td></tr>{% endfor %}
+</table><button type="button" class="btn sec sm" onclick="addRow()">+ Add question</button></div>
+<button class="btn">{{ 'Save and find jobs →' if onboarding else 'Save answers' }}</button></form>
+<script>function addRow(){const t=document.getElementById('qa'),r=t.insertRow();r.innerHTML='<td><input name="qa_q" placeholder="e.g. Do you have a CCNP certification?"></td><td><input name="qa_a" placeholder="Your answer"></td><td><button type="button" class="btn sec sm" onclick="this.closest(\'tr\').remove()">✕</button></td>'}</script>
+{% endblock %}
