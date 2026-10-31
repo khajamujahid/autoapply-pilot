@@ -15,6 +15,8 @@
 <label>Skip jobs scoring below</label><input name="min_match_score" type="number" min="0" max="100" value="{{ st.min_match_score|int }}">
 <label>Daily application limit</label><input name="daily_limit" type="number" min="0" max="200" value="{{ st.daily_limit }}"></div></div>
 <button class="btn">Save settings</button></form>
+<div class="card" style="margin-top:18px"><h2>📝 Application Questions</h2><p class="small">Work authorization, sponsorship, EEO, address, salary, start date, education, and your own custom Q&amp;A. ApplyPilot uses these to fill every application form.</p>
+<a class="btn sec" href="/questions">Edit application questions</a></div>
 <script>
 const prov=document.getElementById('prov'),model=document.getElementById('model'),url=document.getElementById('url');
 function sync(first){const o=prov.selectedOptions[0];document.getElementById('urlrow').style.display=prov.value==='custom'?'':'none';

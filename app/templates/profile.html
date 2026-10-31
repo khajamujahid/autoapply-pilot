@@ -10,9 +10,7 @@
 <label>Summary</label><textarea name="summary" rows="3">{{ d.get('summary','') }}</textarea>
 {% if d.get('experience') %}<label>Experience (parsed)</label><pre>{% for e in d.experience %}{{ e.get('title','') }} — {{ e.get('company','') }} ({{ e.get('start','') }}–{{ e.get('end','') }})
 {% endfor %}</pre>{% endif %}</div>
-<div class="card"><h2>Standard application answers</h2><p class="small muted">Used for common questions. EEO questions default to "Decline to self-identify".</p>
-{% for k,label,opts in ANSWER_FIELDS %}<label>{{ label }}</label>{% if opts %}<select name="{{ k }}">{% for o in opts %}<option {{ 'selected' if ans.get(k)==o }}>{{ o }}</option>{% endfor %}</select>
-{% else %}<input name="{{ k }}" value="{{ ans.get(k,'') }}">{% endif %}{% endfor %}</div></div>
+<div class="card"><h2>Application questions</h2><p class="small">Work authorization, sponsorship, EEO, address, salary, education and custom Q&amp;A now live on their own page.</p><a class="btn sec" href="/questions">Open Application Questions →</a></div></div>
 <button class="btn">Save profile</button></form>
 <div class="card" id="credentials" style="margin-top:18px"><h2>Site credentials (encrypted)</h2><p class="small muted">Workday needs an account per company. Use site <code>workday:&lt;tenant&gt;</code> (the subdomain, e.g. <code>workday:nvidia</code>) or <code>workday</code> as a default.</p>
 <table class="small">{% for c in creds %}<tr><td><b>{{ c.site }}</b></td><td>{{ c.username }}</td><td>••••••••</td><td><form method="post" action="/profile/credentials/{{ c.id }}/delete"><button class="btn sec sm">Remove</button></form></td></tr>{% endfor %}</table>

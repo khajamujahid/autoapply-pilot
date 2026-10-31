@@ -4,7 +4,7 @@
 {% if user %}
 <div class="top"><a class="brand" href="/"><img src="/static/logo.svg" alt="">{{ APP_NAME }}</a>
 <nav class="nav"><a href="/" class="{{ 'on' if path=='/' }}">Tracker</a><a href="/jobs" class="{{ 'on' if path.startswith('/jobs') }}">Discover</a>
-<a href="/profile" class="{{ 'on' if path.startswith('/profile') }}">Profile</a><a href="/settings" class="{{ 'on' if path.startswith('/settings') }}">Settings</a>
+<a href="/profile" class="{{ 'on' if path.startswith('/profile') }}">Profile</a><a href="/questions" class="{{ 'on' if path.startswith('/questions') }}">Questions</a><a href="/settings" class="{{ 'on' if path.startswith('/settings') }}">Settings</a>
 <a href="/docs/architecture" class="{{ 'on' if path.startswith('/docs') }}">How it works</a></nav>
 <div class="sp"></div><span class="who">{{ user.email }}</span><a class="btn sec sm" href="/logout">Sign out</a></div>
 {% endif %}
