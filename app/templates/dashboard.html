@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% block title %}Tracker{% endblock %}{% block body %}
+{% if st.dry_run %}<div class="banner">🧪 <b>Dry-run mode is on.</b> Forms are filled and screenshotted but never submitted. Turn it off in <a href="/settings" style="color:#fff;text-decoration:underline">Settings</a> when you're ready.</div>{% endif %}
+{% if not setup.resume or not setup.ai %}<div class="card"><h2>Get started</h2><div class="steps">
+<a class="step {{ 'done' if setup.resume }}" href="/profile">{{ '✅' if setup.resume else '1️⃣' }} Upload your resume</a>
+<a class="step {{ 'done' if setup.ai }}" href="/settings">{{ '✅' if setup.ai else '2️⃣' }} Connect your AI (Grok, Gemini, Claude, OpenAI)</a>
+<a class="step" href="/jobs">3️⃣ Discover jobs or paste links below</a></div></div>{% endif %}
+<div class="row" style="justify-content:space-between"><div><h1>Applications</h1><p class="sub">Everything you've queued, reviewed and applied to.</p></div>
+<a class="btn sec" href="/export.csv">⬇ Export CSV</a></div>
+<div class="stats">{% for s in ['QUEUED','REVIEW','APPROVED','APPLYING','APPLIED','DRY_RUN_DONE','NEEDS_MANUAL','FAILED'] %}
+<a class="stat" href="/?status={{ s }}"><b>{{ counts.get(s,0) + (counts.get('OPTIMIZING_RESUME',0)+counts.get('OPTIMIZING_CL',0) if s=='QUEUED' else 0) }}</b><span>{{ s.replace('_',' ') }}</span></a>{% endfor %}</div>
+<div class="card"><h2>Add jobs by link</h2><form method="post" action="/applications/add" class="row">
+<textarea name="urls" rows="2" placeholder="Paste Greenhouse, Lever, Ashby or Workday job links, one per line" style="flex:1"></textarea><button class="btn">Queue</button></form></div>
+<div class="card"><form class="row" method="get" style="margin-bottom:10px">
+<input name="q" value="{{ f_q }}" placeholder="Search title or company" style="max-width:260px">
+<select name="status" style="max-width:200px"><option value="">All statuses</option>{% for s in STATUSES %}<option {{ 'selected' if s==f_status }}>{{ s }}</option>{% endfor %}</select>
+<select name="ats" style="max-width:160px"><option value="">All ATS</option>{% for a in ['greenhouse','lever','ashby','workday','unknown'] %}<option {{ 'selected' if a==f_ats }}>{{ a }}</option>{% endfor %}</select>
+<button class="btn sec">Filter</button></form>
+<form method="post" action="/applications/bulk"><table><thead><tr><th></th><th>Job</th><th>ATS</th><th>Match</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>
+{% for a in apps %}<tr><td><input type="checkbox" name="ids" value="{{ a.id }}"></td>
+<td><a href="/applications/{{ a.id }}"><b>{{ a.title or a.url[:70] }}</b></a><div class="small muted">{{ a.company }}{% if a.location %} · {{ a.location }}{% endif %}</div></td>
+<td class="small">{{ a.ats }}</td><td><span class="score {{ 'hi' if a.match_score>=60 else 'md' if a.match_score>=35 else 'lo' }}">{{ a.match_score|round|int if a.match_score else '–' }}</span></td>
+<td><span class="pill s-{{ a.status }}">{{ a.status.replace('_',' ') }}</span>{% if a.error %}<div class="small muted" style="max-width:280px">{{ a.error[:140] }}</div>{% endif %}</td>
+<td class="small muted">{{ a.updated_at.strftime('%b %d %H:%M') }}</td>
+<td><a class="btn sec sm" href="/applications/{{ a.id }}">Open</a></td></tr>
+{% else %}<tr><td colspan="7" class="muted">Nothing here yet. Paste a job link above or use <a href="/jobs">Discover</a>.</td></tr>{% endfor %}
+</tbody></table>{% if apps %}<div class="row" style="margin-top:10px"><select name="action" style="max-width:200px"><option value="approve">Approve selected</option><option value="delete">Delete selected</option></select><button class="btn sec sm">Apply</button></div>{% endif %}</form></div>
+<script>setTimeout(()=>location.reload(),15000)</script>
+{% endblock %}

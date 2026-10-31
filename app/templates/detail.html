@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% block title %}{{ a.title }}{% endblock %}{% block body %}
+<a href="/" class="small">← Tracker</a>
+<div class="row" style="justify-content:space-between;margin-top:8px"><div><h1>{{ a.title or 'Job' }}</h1>
+<p class="sub">{{ a.company }} · {{ a.location }} · {{ a.ats }} · <a href="{{ a.apply_url or a.url }}" target="_blank">open posting ↗</a></p></div>
+<span class="pill s-{{ a.status }}" style="font-size:13px">{{ a.status.replace('_',' ') }}</span></div>
+{% if a.error %}<div class="flash err">{{ a.error }}{% if a.status=='NEEDS_MANUAL' %} — <a href="{{ a.apply_url or a.url }}" target="_blank" style="color:#fff;text-decoration:underline">finish it here ↗</a>{% endif %}</div>{% endif %}
+<form method="post" action="/applications/{{ a.id }}/action">
+<div class="grid g3"><div class="card"><h2>Match <span class="score {{ 'hi' if a.match_score>=60 else 'md' if a.match_score>=35 else 'lo' }}">{{ a.match_score }}</span></h2>
+<table class="kv small"><tr><td class="muted">Matched</td><td>{{ (a.match_details or {}).get('matched_skills',[])|join(', ') or '–' }}</td></tr>
+<tr><td class="muted">Missing</td><td>{{ (a.match_details or {}).get('missing_skills',[])|join(', ') or '–' }}</td></tr>
+<tr><td class="muted">Years req.</td><td>{{ (a.match_details or {}).get('required_years') or '–' }}</td></tr></table>
+{% if a.match_explanation %}<pre>{{ a.match_explanation }}</pre>{% endif %}</div>
+<div class="card" style="grid-column:span 2"><h2>Actions</h2><div class="row">
+{% if a.status=='REVIEW' %}<button class="btn" name="action" value="approve">✅ Approve & apply</button>{% endif %}
+{% if a.status in ['DISCOVERED','SKIPPED'] %}<button class="btn" name="action" value="queue">Queue (tailor)</button>{% endif %}
+{% if a.status in ['FAILED','NEEDS_MANUAL','DRY_RUN_DONE'] %}<button class="btn sec" name="action" value="retry">↻ Run again</button>{% endif %}
+{% if a.status in ['NEEDS_MANUAL','DRY_RUN_DONE'] %}<button class="btn sec" name="action" value="mark_applied">Mark as applied</button>{% endif %}
+{% if a.status not in ['APPLIED','SKIPPED'] %}<button class="btn sec" name="action" value="reject">Skip</button>{% endif %}
+<button class="btn sec" name="action" value="save">Save edits</button>
+<button class="btn danger" name="action" value="delete" onclick="return confirm('Delete?')">Delete</button></div>
+{% if a.tailored_resume_pdf %}<p class="small" style="margin-top:12px"><a href="/applications/{{ a.id }}/file/tailored_resume.pdf" target="_blank">📄 Tailored resume PDF</a></p>{% endif %}</div></div>
+<div class="grid g2"><div class="card"><h2>Tailored resume</h2><textarea name="tailored_resume" rows="18">{{ a.tailored_resume }}</textarea></div>
+<div class="card"><h2>Cover letter</h2><textarea name="cover_letter" rows="18">{{ a.cover_letter }}</textarea></div></div></form>
+{% if shots %}<div class="card"><h2>Screenshots</h2><div class="shots">{% for s in shots %}<a href="/applications/{{ a.id }}/file/{{ s }}" target="_blank"><img src="/applications/{{ a.id }}/file/{{ s }}" loading="lazy"><div class="small muted">{{ s }}</div></a>{% endfor %}</div></div>{% endif %}
+<div class="grid g2"><div class="card"><h2>Answers used</h2><table class="small">{% for x in a.answers_used or [] %}<tr><td>{{ x.question }}</td><td><b>{{ x.answer }}</b></td><td class="muted">{{ x.via }}</td></tr>{% else %}<tr><td class="muted">None yet</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>Log</h2><pre>{{ (a.log or [])|join('\n') }}</pre></div></div>
+<div class="card"><h2>Job description</h2><pre>{{ a.job_description }}</pre></div>
+{% endblock %}
