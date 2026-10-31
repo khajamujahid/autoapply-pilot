@@ -1,0 +1,17 @@
+Alex Placeholder
+alex.placeholder@example.com | +1 555 010 0000 | New York, NY
+
+SUMMARY
+Software engineer (placeholder test profile) with 5 years building backend services and web apps.
+
+EXPERIENCE
+Software Engineer, Example Corp (2021-present)
+- Built Python/FastAPI services and PostgreSQL data pipelines on AWS.
+- Shipped React + TypeScript dashboards; set up CI/CD with Docker and Kubernetes.
+Junior Developer, Sample LLC (2019-2021)
+- Maintained Ruby on Rails app; wrote Go microservices.
+
+SKILLS
+Python, Go, TypeScript, React, PostgreSQL, AWS, Docker, Kubernetes, Ruby
+EDUCATION
+B.S. Computer Science, Example University
