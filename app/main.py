@@ -18,7 +18,7 @@ from .crypto import enc, dec
 from .db import (SessionLocal, init_db, User, Settings, Profile, Credential, SavedSearch, Application, STATUSES,
                  ensure_user_rows)
 from .discovery import search as discover, save_jobs, run_saved_search
-from .profile import FIELDS, SIMPLE_FIELDS, ANSWER_FIELDS, extract_text
+from .profile import FIELDS, SIMPLE_FIELDS, ANSWER_FIELDS, QUESTION_SECTIONS, extract_text
 
 HERE = Path(__file__).parent
 app = FastAPI(title=APP_NAME)
@@ -259,28 +259,34 @@ def api_counts(request: Request):
 @app.get("/jobs", response_class=HTMLResponse)
 def jobs_page(request: Request, run: int = 0):
     user = current_user(request)
+    from .roles import builtin_profile
     with SessionLocal() as s:
         searches = list(s.scalars(select(SavedSearch).where(SavedSearch.user_id == user.id)))
         found = list(s.scalars(select(Application).where(Application.user_id == user.id, Application.status == "DISCOVERED")
                                .order_by(Application.match_score.desc()).limit(300)))
-    return render(request, "jobs.html", user, searches=searches, found=found)
+        sp = builtin_profile(s.get(Profile, user.id))
+    return render(request, "jobs.html", user, searches=searches, found=found, sp=sp,
+                  last=request.session.get("last_discovery"))
 
 
 @app.post("/jobs/search")
-def jobs_search(request: Request, keywords: str = Form(""), location: str = Form(""), remote_only: bool = Form(False),
-                companies: str = Form(""), sources: list[str] = Form([]), save_name: str = Form(""),
-                every_hours: int = Form(0), auto_queue_above: float = Form(0)):
+def jobs_search(request: Request, location: str = Form(""), remote_only: bool = Form(False), days: int = Form(7),
+                companies: str = Form(""), save_name: str = Form(""), every_hours: int = Form(0),
+                auto_queue_above: float = Form(0)):
     user = current_user(request)
-    src = ",".join(sources) or "boards"
     if save_name:
         with SessionLocal() as s:
-            s.add(SavedSearch(user_id=user.id, name=save_name, keywords=keywords, location=location, remote_only=remote_only,
-                              companies=companies, sources=src, every_hours=every_hours, auto_queue_above=auto_queue_above))
+            s.add(SavedSearch(user_id=user.id, name=save_name, keywords="", location=location, remote_only=remote_only,
+                              companies=companies, sources=f"auto;days={days}", every_hours=every_hours,
+                              auto_queue_above=auto_queue_above))
             s.commit()
-    jobs, errors = discover(user.id, keywords, location, remote_only, companies, src)
+    jobs, errors, meta = discover(user.id, location, remote_only, days, companies)
     n = save_jobs(user.id, jobs)
-    flash(request, f"Found {len(jobs)} matching jobs, {n} new." + (" Notes: " + "; ".join(errors[:3]) if errors else ""),
-          "err" if errors and not jobs else "ok")
+    request.session["last_discovery"] = {"roles": meta["roles"], "method": meta["profile"]["method"],
+                                         "raw": meta["raw_counts"], "kept": meta["kept_counts"],
+                                         "where": meta["location"], "days": days}
+    flash(request, f"Searched {len(meta['raw_counts'])} sources for {', '.join(meta['roles'])}: {len(jobs)} matching jobs, {n} new."
+          + (" Notes: " + "; ".join(errors[:2]) if errors else ""), "err" if errors and not jobs else "ok")
     return RedirectResponse("/jobs", 303)
 
 
@@ -340,7 +346,54 @@ def profile_resume(request: Request, file: UploadFile = File(...), parse: bool =
             except AIError as e:
                 msg += f" AI parsing failed: {e}"
         s.commit()
-    flash(request, msg); return RedirectResponse("/profile", 303)
+    flash(request, msg)
+    with SessionLocal() as s:
+        done = (s.get(Profile, user.id).answers or {}).get("questions_done")
+    if not done:
+        flash(request, "Next: answer the common application questions once, so forms never stall.")
+        return RedirectResponse("/questions?onboarding=1", 303)
+    return RedirectResponse("/profile", 303)
+
+
+@app.get("/questions", response_class=HTMLResponse)
+@app.get("/settings/questions", response_class=HTMLResponse)
+def questions_page(request: Request, onboarding: int = 0):
+    user = current_user(request)
+    with SessionLocal() as s:
+        ensure_user_rows(s, user.id)
+        prof = s.get(Profile, user.id)
+        d, ans = dict(prof.data or {}), dict(prof.answers or {})
+    qa = ans.get("custom_qa") or []
+    return render(request, "questions.html", user, d=d, ans=ans, SECTIONS=QUESTION_SECTIONS, qa=qa,
+                  pending=sum(1 for x in qa if not str(x.get("a", "")).strip()), onboarding=onboarding)
+
+
+@app.post("/questions")
+async def questions_save(request: Request):
+    user = current_user(request)
+    form = await request.form()
+    with SessionLocal() as s:
+        prof = s.get(Profile, user.id)
+        data, ans = dict(prof.data or {}), dict(prof.answers or {})
+        for _, fields in QUESTION_SECTIONS:
+            for k, _, _ in fields:
+                if k in form:
+                    (data if k.startswith("d:") else ans)[k[2:] if k.startswith("d:") else k] = str(form[k]).strip()
+        qs, as_ = form.getlist("qa_q"), form.getlist("qa_a")
+        old = {x.get("q"): x for x in ans.get("custom_qa") or []}
+        qa = []
+        for q, a in zip(qs, as_):
+            q, a = str(q).strip(), str(a).strip()
+            if q:
+                x = dict(old.get(q, {}), q=q, a=a)
+                if a and x.get("via") in ("pending", "ai (review)"):
+                    x["via"] = "you"
+                qa.append(x)
+        ans["custom_qa"] = qa
+        ans["questions_done"] = True
+        prof.data, prof.answers = data, ans; s.commit()
+    flash(request, "Application questions saved.")
+    return RedirectResponse("/jobs" if form.get("onboarding") == "1" else "/questions", 303)
 
 
 @app.post("/profile/save")
