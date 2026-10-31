@@ -1,7 +1,7 @@
 # Quick start
 
 ## 1. Install and start
-Use Docker (`docker compose up --build`) or the scripts (`./install.sh && ./start.sh`, or `install.ps1` / `start.bat` on Windows). Then open **http://localhost:8077**.
+Use Docker (`docker compose up --build`) or the scripts (`bash install.sh && bash start.sh`, or `install.ps1` / `start.bat` on Windows). Then open **http://localhost:8077**.
 
 ## 2. Create your account
 Sign up with email and password, or use **Continue with Google** if it's configured (see README).

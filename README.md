@@ -31,8 +31,8 @@ This starts the web app and a background worker. All data is in `./data`.
 ### Option B: No Docker (Python 3.10+)
 macOS / Linux:
 ```bash
-./install.sh     # creates .venv, installs packages + Chromium, creates .env
-./start.sh       # → http://localhost:8077
+bash install.sh   # creates .venv, installs packages + Chromium, creates .env
+bash start.sh     # → http://localhost:8077
 ```
 Windows (PowerShell):
 ```powershell

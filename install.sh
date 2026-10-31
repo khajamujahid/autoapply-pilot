@@ -15,4 +15,4 @@ echo "→ Installing Chromium for Playwright"
 if [ "$(uname)" = "Linux" ]; then .venv/bin/playwright install-deps chromium 2>/dev/null || echo "  (if Chromium fails to start, run: sudo .venv/bin/playwright install-deps chromium)"; fi
 [ -f .env ] || cp .env.example .env
 mkdir -p data
-echo "✓ Installed. Start with: ./start.sh   then open http://localhost:8077"
+echo "✓ Installed. Start with: bash start.sh   then open http://localhost:8077"
