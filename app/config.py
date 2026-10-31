@@ -1,18 +1,53 @@
 import os
 from pathlib import Path
 
-DATA_DIR = Path(os.getenv("DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-(DATA_DIR / "uploads").mkdir(exist_ok=True)
-(DATA_DIR / "artifacts").mkdir(exist_ok=True)
+ROOT = Path(__file__).resolve().parent.parent
 
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'autoapply.db'}")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
-# DRY_RUN=true (default): fill forms + screenshot, never click submit.
-DRY_RUN = os.getenv("DRY_RUN", "true").lower() not in ("0", "false", "no")
-REQUIRE_REVIEW = os.getenv("REQUIRE_REVIEW", "true").lower() not in ("0", "false", "no")
-MIN_MATCH_SCORE = float(os.getenv("MIN_MATCH_SCORE", "0"))
+
+def _load_dotenv():
+    f = ROOT / ".env"
+    if f.exists():
+        for line in f.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.split(" #")[0].strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
+DATA_DIR = Path(os.getenv("DATA_DIR", ROOT / "data")).resolve()
+for d in ("", "uploads", "artifacts"):
+    (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
+
+
+def _persistent_secret(name: str, gen) -> str:
+    """Use env var if set; otherwise generate once and keep in ./data so restarts keep sessions/keys."""
+    if os.getenv(name):
+        return os.environ[name]
+    f = DATA_DIR / f".{name.lower()}"
+    if not f.exists():
+        f.write_text(gen()); f.chmod(0o600)
+    return f.read_text().strip()
+
+
+def _fernet():
+    from cryptography.fernet import Fernet
+    return Fernet.generate_key().decode()
+
+
+def _rand():
+    import secrets
+    return secrets.token_urlsafe(48)
+
+
+DATABASE_URL = os.getenv("DATABASE_URL") or f"sqlite:///{DATA_DIR / 'app.db'}"
+SECRET_KEY = _persistent_secret("SECRET_KEY", _rand)
+ENCRYPTION_KEY = _persistent_secret("ENCRYPTION_KEY", _fernet)
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8077").rstrip("/")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "true").lower() in ("1", "true", "yes")
 HEADLESS = os.getenv("HEADLESS", "true").lower() not in ("0", "false", "no")
-DAILY_QUOTA = int(os.getenv("DAILY_QUOTA", "25"))
+RUN_WORKER_IN_PROCESS = os.getenv("RUN_WORKER_IN_PROCESS", "true").lower() in ("1", "true", "yes")
+APP_NAME = "ApplyPilot"
