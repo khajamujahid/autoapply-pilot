@@ -1,28 +1,57 @@
 {% extends "base.html" %}{% block title %}{{ a.title }}{% endblock %}{% block body %}
+{% set reqs = a.requirements or [] %}{% set cov = reqs|selectattr('covered')|list %}
 <a href="/" class="small">← Tracker</a>
 <div class="row" style="justify-content:space-between;margin-top:8px"><div><h1>{{ a.title or 'Job' }}</h1>
-<p class="sub">{{ a.company }} · {{ a.location }} · {{ a.ats }} · <a href="{{ a.apply_url or a.url }}" target="_blank">open posting ↗</a></p></div>
+<p class="sub">{{ a.company }} · {{ a.location }} · {{ a.ats }}{% if a.url.startswith('http') %} · <a href="{{ a.apply_url or a.url }}" target="_blank">open posting ↗</a>{% endif %}</p></div>
 <span class="pill s-{{ a.status }}" style="font-size:13px">{{ a.status.replace('_',' ') }}</span></div>
 {% if a.error %}<div class="flash err">{{ a.error }}{% if a.status=='NEEDS_MANUAL' %} — <a href="{{ a.apply_url or a.url }}" target="_blank" style="color:#fff;text-decoration:underline">finish it here ↗</a>{% endif %}</div>{% endif %}
-<form method="post" action="/applications/{{ a.id }}/action">
-<div class="grid g3"><div class="card"><h2>Match <span class="score {{ 'hi' if a.match_score>=60 else 'md' if a.match_score>=35 else 'lo' }}">{{ a.match_score }}</span></h2>
-<table class="kv small"><tr><td class="muted">Matched</td><td>{{ (a.match_details or {}).get('matched_skills',[])|join(', ') or '–' }}</td></tr>
-<tr><td class="muted">Missing</td><td>{{ (a.match_details or {}).get('missing_skills',[])|join(', ') or '–' }}</td></tr>
+<div class="row" style="gap:6px;margin:6px 0 14px">{% for t,l in [('match','🎯 Match'),('docs','📝 Documents'),('apply','🚀 Apply & log')] %}<a class="btn {{ '' if tab==t else 'sec' }} sm" href="?tab={{ t }}">{{ l }}</a>{% endfor %}
+<form method="post" action="/applications/{{ a.id }}/draft" class="row" style="margin-left:auto;gap:6px">
+<select name="tone" style="width:auto">{% for t in TONES %}<option {{ 'selected' if t==tone }}>{{ t }}</option>{% endfor %}</select>
+<select name="language" style="width:auto">{% for k,v in LANGS.items() %}<option value="{{ k }}" {{ 'selected' if k==lang }}>{{ v }}</option>{% endfor %}</select>
+<label class="small" style="margin:0"><input type="checkbox" name="rematch" value="true">re-match</label>
+<button class="btn sm">{{ '↻ Regenerate drafts' if a.tailored_resume else '✨ Tailor resume, cover letter & email' }}</button></form></div>
+
+{% if tab=='match' %}
+<div class="grid g3"><div class="card"><h2>Match <span class="score {{ 'hi' if a.match_score>=60 else 'md' if a.match_score>=35 else 'lo' }}">{{ a.match_score|round|int }}</span></h2>
+{% if reqs %}<p><b>{{ cov|length }} / {{ reqs|length }}</b> requirements covered by your profile</p>
+<div style="background:#222;border-radius:6px;height:10px"><div style="width:{{ (100*cov|length/reqs|length)|int }}%;background:#22c55e;height:10px;border-radius:6px"></div></div>{% endif %}
+<table class="kv small" style="margin-top:10px"><tr><td class="muted">Matched skills</td><td>{{ (a.match_details or {}).get('matched_skills',[])|join(', ') or '–' }}</td></tr>
 <tr><td class="muted">Years req.</td><td>{{ (a.match_details or {}).get('required_years') or '–' }}</td></tr></table>
 {% if a.match_explanation %}<pre>{{ a.match_explanation }}</pre>{% endif %}</div>
-<div class="card" style="grid-column:span 2"><h2>Actions</h2><div class="row">
-{% if a.status=='REVIEW' %}<button class="btn" name="action" value="approve">✅ Approve & apply</button>{% endif %}
-{% if a.status in ['DISCOVERED','SKIPPED'] %}<button class="btn" name="action" value="queue">Queue (tailor)</button>{% endif %}
+<div class="card" style="grid-column:span 2"><h2>What the posting asks for vs. your profile</h2>
+{% if not reqs %}<p class="muted">Click <b>Tailor</b> above to analyse the requirements.</p>{% endif %}
+<table class="small">{% for r in reqs %}<tr><td style="width:28px">{{ '✅' if r.covered else '⚠️' }}</td><td><b>{{ r.text }}</b><div class="muted">{{ r.evidence }}</div></td>
+<td><span class="pill {{ 's-APPLIED' if r.covered else 's-FAILED' }}">{{ 'covered' if r.covered else 'gap' }}</span></td></tr>{% endfor %}</table>
+{% if reqs and cov|length < reqs|length %}<p class="small muted">Gaps are never written into your documents. If you do have one of them, add it to your <a href="/profile">Profile</a> and regenerate.</p>{% endif %}</div></div>
+{% elif tab=='docs' %}
+{% set kind = request.query_params.get('kind','resume') %}
+<div class="row" style="gap:6px;margin-bottom:10px">{% for k,l in [('resume','Resume'),('cover','Cover letter'),('email','Email')] %}<a class="btn {{ '' if kind==k else 'sec' }} sm" href="?tab=docs&kind={{ k }}">{{ l }} <span class="muted">v{{ vers[k]|length }}</span></a>{% endfor %}
+<form method="post" action="/applications/{{ a.id }}/theme" class="row" style="margin-left:auto;gap:6px"><label class="small" style="margin:0">Theme</label>
+<select name="theme" style="width:auto" onchange="this.form.submit()">{% for k,v in THEMES.items() %}<option value="{{ k }}" {{ 'selected' if k==theme }}>{{ v }}</option>{% endfor %}</select></form>
+{% if a.tailored_resume %}<a class="btn sec sm" href="/applications/{{ a.id }}/pdf/resume">⬇ Resume PDF</a><a class="btn sec sm" href="/applications/{{ a.id }}/pdf/cover">⬇ Cover letter PDF</a>{% endif %}</div>
+<div class="grid g2"><div class="card"><h2>{{ {'resume':'Tailored resume','cover':'Cover letter','email':'Application email'}[kind] }}</h2>
+{% set cur = {'resume':a.tailored_resume,'cover':a.cover_letter,'email':a.email_draft}[kind] or '' %}
+{% if kind=='email' and cur %}{% set subj = cur.split('\n')[0].replace('Subject:','').strip() %}{% set body = cur.split('\n',1)[1] if '\n' in cur else '' %}
+<p><a class="btn sm" href="mailto:?subject={{ subj|urlencode }}&body={{ body.strip()|urlencode }}">✉ Open in my mail app</a> <span class="small muted">attach the two PDFs</span></p>{% endif %}
+<form method="post" action="/applications/{{ a.id }}/action"><textarea name="{{ 'tailored_resume' if kind=='resume' else 'cover_letter' if kind=='cover' else 'x' }}" rows="24" {{ 'readonly' if kind=='email' }}>{{ cur }}</textarea>
+{% if kind!='email' %}<button class="btn sec sm" name="action" value="save" style="margin-top:8px">Save my edit (new version)</button>{% endif %}</form></div>
+<div><div class="card"><h2>💬 Refine with chat</h2><div style="max-height:260px;overflow:auto">{% for m in chat if m.kind==kind %}<div class="small" style="margin:6px 0;{{ 'text-align:right' if m.role=='user' }}"><span class="pill">{{ 'You' if m.role=='user' else 'AI' }}</span> {{ m.text }}</div>{% else %}<p class="small muted">Try "make it shorter", "highlight Python", "more formal tone", "remove the summary".</p>{% endfor %}</div>
+<form method="post" action="/applications/{{ a.id }}/chat" class="row"><input type="hidden" name="kind" value="{{ kind }}"><input name="message" placeholder="Ask for a change…" required style="flex:1"><button class="btn">Send</button></form></div>
+<div class="card"><div class="row" style="justify-content:space-between"><h2>🕘 Versions</h2><form method="post" action="/applications/{{ a.id }}/version/{{ kind }}/undo"><button class="btn sec sm" {{ 'disabled' if vers[kind]|length < 2 }}>↶ Undo</button></form></div>
+<table class="small">{% for v in vers[kind] %}<tr><td>v{{ loop.revindex }}</td><td>{{ v.note }}</td><td class="muted">{{ v.created_at.strftime('%b %d %H:%M') }}</td>
+<td>{% if not loop.first %}<form method="post" action="/applications/{{ a.id }}/version/{{ kind }}/restore"><input type="hidden" name="vid" value="{{ v.id }}"><button class="btn sec sm">Restore</button></form>{% else %}<span class="pill s-APPLIED">current</span>{% endif %}</td></tr>{% else %}<tr><td class="muted">No drafts yet.</td></tr>{% endfor %}</table></div></div></div>
+{% else %}
+<form method="post" action="/applications/{{ a.id }}/action"><div class="card"><h2>Actions</h2><div class="row">
+{% if a.status=='REVIEW' %}<button class="btn" name="action" value="approve">✅ Approve & auto-apply</button>{% endif %}
+{% if a.status in ['DISCOVERED','SKIPPED'] %}<button class="btn" name="action" value="queue">Queue (tailor + apply)</button>{% endif %}
 {% if a.status in ['FAILED','NEEDS_MANUAL','DRY_RUN_DONE'] %}<button class="btn sec" name="action" value="retry">↻ Run again</button>{% endif %}
-{% if a.status in ['NEEDS_MANUAL','DRY_RUN_DONE'] %}<button class="btn sec" name="action" value="mark_applied">Mark as applied</button>{% endif %}
-{% if a.status not in ['APPLIED','SKIPPED'] %}<button class="btn sec" name="action" value="reject">Skip</button>{% endif %}
-<button class="btn sec" name="action" value="save">Save edits</button>
+{% for st2 in ['APPLIED','INTERVIEW','OFFER','REJECTED','WITHDRAWN'] %}{% if a.status!=st2 %}<button class="btn sec" name="action" value="{{ st2 }}">→ {{ st2|capitalize }}</button>{% endif %}{% endfor %}
 <button class="btn danger" name="action" value="delete" onclick="return confirm('Delete?')">Delete</button></div>
-{% if a.tailored_resume_pdf %}<p class="small" style="margin-top:12px"><a href="/applications/{{ a.id }}/file/tailored_resume.pdf" target="_blank">📄 Tailored resume PDF</a></p>{% endif %}</div></div>
-<div class="grid g2"><div class="card"><h2>Tailored resume</h2><textarea name="tailored_resume" rows="18">{{ a.tailored_resume }}</textarea></div>
-<div class="card"><h2>Cover letter</h2><textarea name="cover_letter" rows="18">{{ a.cover_letter }}</textarea></div></div></form>
+<p class="small muted">Auto-apply uploads the current version of your tailored resume and cover letter PDFs (theme: {{ theme }}).</p></div></form>
 {% if shots %}<div class="card"><h2>Screenshots</h2><div class="shots">{% for s in shots %}<a href="/applications/{{ a.id }}/file/{{ s }}" target="_blank"><img src="/applications/{{ a.id }}/file/{{ s }}" loading="lazy"><div class="small muted">{{ s }}</div></a>{% endfor %}</div></div>{% endif %}
 <div class="grid g2"><div class="card"><h2>Answers used</h2><table class="small">{% for x in a.answers_used or [] %}<tr><td>{{ x.question }}</td><td><b>{{ x.answer }}</b></td><td class="muted">{{ x.via }}</td></tr>{% else %}<tr><td class="muted">None yet</td></tr>{% endfor %}</table></div>
 <div class="card"><h2>Log</h2><pre>{{ (a.log or [])|join('\n') }}</pre></div></div>
+{% endif %}
 <div class="card"><h2>Job description</h2><pre>{{ a.job_description }}</pre></div>
 {% endblock %}

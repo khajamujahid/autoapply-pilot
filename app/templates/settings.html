@@ -14,6 +14,15 @@
 <label>Auto-approve when match score ≥ (0 = off)</label><input name="auto_approve_above" type="number" min="0" max="100" value="{{ st.auto_approve_above|int }}">
 <label>Skip jobs scoring below</label><input name="min_match_score" type="number" min="0" max="100" value="{{ st.min_match_score|int }}">
 <label>Daily application limit</label><input name="daily_limit" type="number" min="0" max="200" value="{{ st.daily_limit }}"></div></div>
+<div class="grid g2"><div class="card"><h2>📝 Documents</h2>
+<label>Output language</label><select name="language">{% for k,v in LANGS.items() %}<option value="{{ k }}" {{ 'selected' if x.get('language','en')==k }}>{{ v }}</option>{% endfor %}</select>
+<label>Tone</label><select name="tone">{% for t in TONES %}<option {{ 'selected' if x.get('tone','professional')==t }}>{{ t }}</option>{% endfor %}</select>
+<label>Default resume theme</label><select name="theme">{% for k,v in THEMES.items() %}<option value="{{ k }}" {{ 'selected' if x.get('theme','classic')==k }}>{{ v }}</option>{% endfor %}</select>
+<p class="small muted">Drafts only use facts from your profile. Missing requirements show as gaps.</p></div>
+<div class="card"><h2>🔎 Extra job sources (optional)</h2>
+<label>JSearch RapidAPI key {% if x.get('jsearch_key') %}<span class="pill s-APPLIED">saved</span>{% endif %}</label><input name="jsearch_key" type="password" placeholder="{{ 'Leave blank to keep' if x.get('jsearch_key') else 'rapidapi.com → JSearch' }}" autocomplete="off">
+<div class="grid g2"><div><label>Adzuna app ID</label><input name="adzuna_app_id" value="{{ x.get('adzuna_app_id','') }}"></div><div><label>Adzuna app key {% if x.get('adzuna_app_key') %}<span class="pill s-APPLIED">saved</span>{% endif %}</label><input name="adzuna_app_key" type="password" autocomplete="off"></div></div>
+<label><input type="checkbox" name="arbeitsagentur" value="true" {{ 'checked' if x.get('arbeitsagentur') }}>Bundesagentur für Arbeit (Germany). No official API; its terms don't allow automated access, so this is your choice.</label></div></div>
 <button class="btn">Save settings</button></form>
 <div class="card" style="margin-top:18px"><h2>📝 Application Questions</h2><p class="small">Work authorization, sponsorship, EEO, address, salary, start date, education, and your own custom Q&amp;A. ApplyPilot uses these to fill every application form.</p>
 <a class="btn sec" href="/questions">Edit application questions</a></div>

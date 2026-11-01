@@ -2,15 +2,24 @@
 {% if st.dry_run %}<div class="banner">🧪 <b>Dry-run mode is on.</b> Forms are filled and screenshotted but never submitted. Turn it off in <a href="/settings" style="color:#fff;text-decoration:underline">Settings</a> when you're ready.</div>{% endif %}
 {% if not setup.resume or not setup.ai %}<div class="card"><h2>Get started</h2><div class="steps">
 <a class="step {{ 'done' if setup.resume }}" href="/profile">{{ '✅' if setup.resume else '1️⃣' }} Upload your resume</a>
-<a class="step {{ 'done' if setup.ai }}" href="/settings">{{ '✅' if setup.ai else '2️⃣' }} Connect your AI (Grok, Gemini, Claude, OpenAI)</a>
+<a class="step {{ 'done' if setup.ai }}" href="/settings">{{ '✅' if setup.ai else '2️⃣' }} Connect your AI (Grok, Gemini, Claude, OpenAI or local Ollama)</a>
 <a class="step" href="/jobs">3️⃣ Discover jobs or paste links below</a></div></div>{% endif %}
 <div class="row" style="justify-content:space-between"><div><h1>Applications</h1><p class="sub">Everything you've queued, reviewed and applied to.</p></div>
-<a class="btn sec" href="/export.csv">⬇ Export CSV</a></div>
-<div class="stats">{% for s in ['QUEUED','REVIEW','APPROVED','APPLYING','APPLIED','DRY_RUN_DONE','NEEDS_MANUAL','FAILED'] %}
+<div class="row" style="gap:6px">{% for v,l in [('board','▦ Board'),('table','☰ Table'),('funnel','⏷ Funnel')] %}<a class="btn {{ '' if view==v else 'sec' }} sm" href="/?view={{ v }}">{{ l }}</a>{% endfor %}<a class="btn sec sm" href="/export.csv">⬇ CSV</a></div></div>
+<div class="stats">{% for s in ['QUEUED','REVIEW','APPROVED','APPLIED','INTERVIEW','OFFER','DRY_RUN_DONE','NEEDS_MANUAL','FAILED'] %}
 <a class="stat" href="/?status={{ s }}"><b>{{ counts.get(s,0) + (counts.get('OPTIMIZING_RESUME',0)+counts.get('OPTIMIZING_CL',0) if s=='QUEUED' else 0) }}</b><span>{{ s.replace('_',' ') }}</span></a>{% endfor %}</div>
+{% if view=='funnel' %}<div class="card"><h2>Funnel: draft → offer</h2>{% set top = (funnel[0][1] or 1) %}
+{% for name,n in funnel %}<div class="row" style="margin:8px 0"><div style="width:110px"><b>{{ name }}</b></div><div style="flex:1;background:#1a1a1a;border-radius:6px"><div style="width:{{ [100*n/top,2]|max|int }}%;background:#D90429;color:#fff;padding:6px 10px;border-radius:6px;white-space:nowrap">{{ n }}{% if not loop.first and funnel[loop.index0-1][1] %} · {{ (100*n/funnel[loop.index0-1][1])|round|int }}%{% endif %}</div></div></div>{% endfor %}</div>
+{% elif view=='board' %}<div class="grid" style="grid-template-columns:repeat(5,1fr);gap:10px">{% for col, items in board.items() %}<div class="card" style="padding:10px"><h2>{{ col }} <span class="muted">{{ items|length }}</span></h2>
+{% for a in items[:40] %}<a href="/applications/{{ a.id }}" style="display:block;border:1px solid #2a2a2a;border-radius:8px;padding:8px;margin:6px 0;text-decoration:none"><b class="small">{{ a.title or a.url[:40] }}</b><div class="small muted">{{ a.company }}</div><span class="small pill s-{{ a.status }}">{{ a.status.replace('_',' ') }}</span>{% if a.match_score %} <span class="small muted">{{ a.match_score|round|int }}</span>{% endif %}</a>{% else %}<p class="small muted">—</p>{% endfor %}</div>{% endfor %}</div>
+{% endif %}
+<div class="grid g2"><div class="card"><h2>Paste a job posting</h2><form method="post" action="/applications/paste">
+<div class="grid g2"><input name="title" placeholder="Job title" required><input name="company" placeholder="Company"></div>
+<input name="url" placeholder="Posting URL (optional, enables auto-apply)" style="margin-top:6px"><textarea name="description" rows="3" placeholder="Paste the full job description" required style="margin-top:6px"></textarea>
+<button class="btn" style="margin-top:6px">Match & draft documents</button></form></div>
 <div class="card"><h2>Add jobs by link</h2><form method="post" action="/applications/add" class="row">
-<textarea name="urls" rows="2" placeholder="Paste Greenhouse, Lever, Ashby or Workday job links, one per line" style="flex:1"></textarea><button class="btn">Queue</button></form></div>
-<div class="card"><form class="row" method="get" style="margin-bottom:10px">
+<textarea name="urls" rows="2" placeholder="Paste Greenhouse, Lever, Ashby or Workday job links, one per line" style="flex:1"></textarea><button class="btn">Queue</button></form></div></div>
+{% if view=='table' %}<div class="card"><form class="row" method="get" style="margin-bottom:10px"><input type="hidden" name="view" value="table">
 <input name="q" value="{{ f_q }}" placeholder="Search title or company" style="max-width:260px">
 <select name="status" style="max-width:200px"><option value="">All statuses</option>{% for s in STATUSES %}<option {{ 'selected' if s==f_status }}>{{ s }}</option>{% endfor %}</select>
 <select name="ats" style="max-width:160px"><option value="">All ATS</option>{% for a in ['greenhouse','lever','ashby','workday','unknown'] %}<option {{ 'selected' if a==f_ats }}>{{ a }}</option>{% endfor %}</select>
@@ -23,6 +32,6 @@
 <td class="small muted">{{ a.updated_at.strftime('%b %d %H:%M') }}</td>
 <td><a class="btn sec sm" href="/applications/{{ a.id }}">Open</a></td></tr>
 {% else %}<tr><td colspan="7" class="muted">Nothing here yet. Paste a job link above or use <a href="/jobs">Discover</a>.</td></tr>{% endfor %}
-</tbody></table>{% if apps %}<div class="row" style="margin-top:10px"><select name="action" style="max-width:200px"><option value="approve">Approve selected</option><option value="delete">Delete selected</option></select><button class="btn sec sm">Apply</button></div>{% endif %}</form></div>
-<script>setTimeout(()=>location.reload(),15000)</script>
+</tbody></table>{% if apps %}<div class="row" style="margin-top:10px"><select name="action" style="max-width:200px"><option value="approve">Approve selected</option><option value="delete">Delete selected</option></select><button class="btn sec sm">Apply</button></div>{% endif %}</form></div>{% endif %}
+
 {% endblock %}
