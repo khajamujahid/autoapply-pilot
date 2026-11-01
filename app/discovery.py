@@ -59,7 +59,7 @@ def board_jobs(c, ats, slug):
 
 
 ALL_SOURCES = ["linkedin", "indeed", "glassdoor", "zip_recruiter", "google", "remotive", "arbeitnow", "themuse",
-               "adzuna", "usajobs", "boards"]
+               "adzuna", "usajobs", "jsearch", "arbeitsagentur", "boards"]
 JOBSPY_SITES = ["linkedin", "indeed", "glassdoor", "zip_recruiter", "google"]
 
 
@@ -143,9 +143,49 @@ def themuse(c, role, location="", **_):
             for j in _MUSE[key]]
 
 
-def adzuna(c, role, location="", days=7, **_):
+def jsearch(c, role, location="", days=7, keys=None, **_):
+    """JSearch on RapidAPI (aggregates LinkedIn, Indeed, Glassdoor, ZipRecruiter, Google for Jobs). Needs a RapidAPI key."""
     import os
-    aid, akey = os.environ.get("ADZUNA_APP_ID"), os.environ.get("ADZUNA_APP_KEY")
+    k = (keys or {}).get("jsearch_key") or os.environ.get("JSEARCH_API_KEY")
+    if not k:
+        return None
+    q = role + (f" in {location}" if location else "")
+    dp = "today" if days <= 1 else "3days" if days <= 3 else "week" if days <= 7 else "month"
+    r = _get(c, "https://jsearch.p.rapidapi.com/search", params={"query": q, "num_pages": 1, "date_posted": dp,
+             **({"remote_jobs_only": "true"} if location == "" and _.get('remote_only') else {})},
+             headers={"X-RapidAPI-Key": k, "X-RapidAPI-Host": "jsearch.p.rapidapi.com"})
+    return [{"url": j.get("job_apply_link") or j.get("job_google_link"), "apply_url": j.get("job_apply_link"), "ats": "unknown",
+             "company": j.get("employer_name", ""), "title": j.get("job_title", ""),
+             "location": ("Remote, " if j.get("job_is_remote") else "") + ", ".join(x for x in [j.get("job_city"), j.get("job_state"), j.get("job_country")] if x),
+             "description": j.get("job_description", ""), "source": "jsearch",
+             "posted": _parse_date(j.get("job_posted_at_datetime_utc"))} for j in r.get("data", []) if j.get("job_apply_link") or j.get("job_google_link")]
+
+
+def arbeitsagentur(c, role, location="", days=7, keys=None, **_):
+    """Germany's Bundesagentur fuer Arbeit job board (public read endpoint used by its own site; no official API, so OFF
+    unless the user enables it in Settings or ARBEITSAGENTUR=on)."""
+    import os
+    if not ((keys or {}).get("arbeitsagentur") or os.environ.get("ARBEITSAGENTUR", "").lower() in ("on", "1", "true")):
+        return None
+    p = {"was": role, "size": 50, "page": 1, "veroeffentlichtseit": max(1, min(days or 7, 100))}
+    if location and location.lower() != "remote":
+        p["wo"] = location
+    r = _get(c, "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs", params=p,
+             headers={"X-API-Key": "jobboerse-jobsuche"})
+    out = []
+    for j in r.get("stellenangebote", []):
+        ref = j.get("refnr", "")
+        out.append({"url": j.get("externeUrl") or f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{ref}", "ats": "unknown",
+                    "company": j.get("arbeitgeber", ""), "title": j.get("titel", ""),
+                    "location": ", ".join(x for x in [(j.get("arbeitsort") or {}).get("ort"), "Germany"] if x),
+                    "description": j.get("beruf", ""), "source": "arbeitsagentur", "posted": _parse_date(j.get("aktuelleVeroeffentlichungsdatum"))})
+    return out
+
+
+def adzuna(c, role, location="", days=7, keys=None, **_):
+    import os
+    keys = keys or {}
+    aid, akey = keys.get("adzuna_app_id") or os.environ.get("ADZUNA_APP_ID"), keys.get("adzuna_app_key") or os.environ.get("ADZUNA_APP_KEY")
     if not (aid and akey):
         return None
     p = {"app_id": aid, "app_key": akey, "what": role, "results_per_page": 50, "content-type": "application/json"}
@@ -159,7 +199,7 @@ def adzuna(c, role, location="", days=7, **_):
             for j in _get(c, "https://api.adzuna.com/v1/api/jobs/us/search/1", params=p).get("results", [])]
 
 
-def usajobs(c, role, location="", days=7, **_):
+def usajobs(c, role, location="", days=7, keys=None, **_):
     import os
     key, mail = os.environ.get("USAJOBS_API_KEY"), os.environ.get("USAJOBS_EMAIL")
     if not (key and mail):
@@ -180,7 +220,7 @@ def usajobs(c, role, location="", days=7, **_):
     return out
 
 
-API_SOURCES = {"remotive": remotive, "arbeitnow": arbeitnow, "themuse": themuse, "adzuna": adzuna, "usajobs": usajobs}
+API_SOURCES = {"jsearch": jsearch, "arbeitsagentur": arbeitsagentur, "remotive": remotive, "arbeitnow": arbeitnow, "themuse": themuse, "adzuna": adzuna, "usajobs": usajobs}
 
 _W = re.compile(r"[a-z0-9+#]+")
 _GENERIC = {"senior", "sr", "junior", "jr", "lead", "staff", "principal", "i", "ii", "iii", "iv", "remote", "hybrid", "the", "of", "and"}
@@ -202,7 +242,7 @@ def _loc_ok(job, location, remote_only):
     L = (job.get("location") or "") + " " + job["title"]
     if remote_only:
         return "remote" in L.lower() or "anywhere" in L.lower()
-    if not location or job["source"] in JOBSPY_SITES + ["adzuna", "usajobs"]:
+    if not location or job["source"] in JOBSPY_SITES + ["adzuna", "usajobs", "jsearch", "arbeitsagentur"]:
         return True  # these sources already filtered by location server-side
     parts = [p.strip().lower() for p in re.split(r"[,/]", location) if p.strip()]
     return (job["source"] == "remotive" and "remote" in L.lower()) or any(p in L.lower() for p in parts)
@@ -222,6 +262,7 @@ def search(user_id, location="", remote_only=False, days=7, companies="", source
         prof, st = s.get(Profile, user_id), s.get(Settings, user_id)
         ai = Provider(AIConfig.from_settings(st)) if st else None
         sp = derive_search_profile(prof, ai)
+        keys = dict((st.extra or {}) if st else {})
     roles = roles_override or sp["roles"] or ["software engineer"]
     found, errors, counts = [], [], {}
 
@@ -234,8 +275,9 @@ def search(user_id, location="", remote_only=False, days=7, companies="", source
             for role in roles[:3]:
                 tasks.append(ex.submit(run_jobspy, site, role))
         for name in [x for x in srcs if x in API_SOURCES]:
-            for role in (roles[:3] if name in ("remotive", "adzuna", "usajobs") else roles[:1]):
-                tasks.append(ex.submit(lambda n=name, r=role: (n, API_SOURCES[n](c, r, location=location, days=days))))
+            for role in (roles[:3] if name in ("remotive", "adzuna", "usajobs", "jsearch", "arbeitsagentur") else roles[:1]):
+                tasks.append(ex.submit(lambda n=name, r=role: (n, API_SOURCES[n](c, r, location=location, days=days, keys=keys,
+                                                                                    remote_only=remote_only))))
         if "boards" in srcs and companies:
             for ats, slug in parse_companies(companies):
                 tasks.append(ex.submit(lambda a=ats, sl=slug: ("boards", board_jobs(c, a, sl))))

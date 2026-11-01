@@ -1,4 +1,5 @@
 """Shared Playwright engine. Fills every field it can understand; clicks submit only when dry_run is False."""
+from pathlib import Path
 import re
 import time
 from playwright.sync_api import sync_playwright, Page
@@ -152,7 +153,8 @@ class BaseSubmitter:
                 if not opts or len(opts) > 150:  # long lists (countries, schools): type to filter
                     guess = self.ans.text(q)
                     if guess:
-                        el.fill(guess); page.wait_for_timeout(700)
+                        el.fill(guess.split(",")[0] if re.search(r"location|city", q, re.I) else guess)
+                        page.wait_for_timeout(1500)
                         opts = [re.sub(r"\s+", " ", t).strip() for t in page.locator("[role=option]:visible").all_inner_texts()][:50]
                 a = self.ans.choose(q, opts) if opts else None
                 if a:
@@ -193,6 +195,34 @@ class BaseSubmitter:
             except Exception as e:
                 self.log.append(f"choice: {str(e)[:120]}")
 
+    def unfilled_required(self, page):
+        """Labels of required fields that are still empty after filling (used to stop instead of guessing)."""
+        return page.evaluate(r"""() => {
+          const vis = e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
+          const out = [];
+          const lab = e => { if (e.id) { const l = document.querySelector(`label[for="${CSS.escape(e.id)}"]`); if (l) return l.innerText; }
+            const f = e.closest('fieldset'); if (f && f.querySelector('legend')) return f.querySelector('legend').innerText;
+            let c = e.parentElement; for (let k=0;k<5&&c;k++,c=c.parentElement){ const l=c.querySelector('label'); if(l) return l.innerText; }
+            return e.name || e.id || '?'; };
+          document.querySelectorAll('input, textarea, select').forEach(e => {
+            if (e.type === 'hidden' || e.type === 'submit' || e.type === 'button' || (e.name||'').startsWith('g-recaptcha')) return;
+            const l = (lab(e) || '').replace(/\s+/g,' ').trim();
+            const req = e.required || e.getAttribute('aria-required') === 'true' || /\*\s*$|✱/.test(l);
+            if (!req) return;
+            if (!vis(e) && !(e.type === 'file' || e.type === 'radio' || e.type === 'checkbox')) return;
+            let empty;
+            if (e.type === 'radio' || e.type === 'checkbox') {
+              const grp = e.name ? document.querySelectorAll(`input[name="${CSS.escape(e.name)}"]`) : [e];
+              empty = !Array.from(grp).some(x => x.checked);
+            } else if (e.type === 'file') empty = !(e.files && e.files.length);
+            else if (e.getAttribute('role') === 'combobox') {
+              const ctl = e.closest('[class*=control]') || e.parentElement;
+              empty = !e.value && !(ctl && ctl.querySelector('[class*=single-value],[class*=singleValue],[class*=multi-value]'));
+            } else empty = !e.value;
+            if (empty && !out.includes(l.slice(0,120))) out.push(l.slice(0,120));
+          });
+          return out; }""")
+
     def captcha_present(self, page):
         loc = page.locator("iframe[src*='bframe'], iframe[src*='hcaptcha.com'], iframe[src*='challenges.cloudflare']")
         return any(l.is_visible() for l in loc.all())
@@ -219,7 +249,8 @@ class BaseSubmitter:
                 lab = el.evaluate("e => { let c=e; for (let k=0;k<6&&c;k++,c=c.parentElement){ const t=(c.innerText||'').toLowerCase(); if (t.includes('cover letter')) return t.length<400; } return false; }")
                 if lab and not el.evaluate("e => e.files && e.files.length > 0"):
                     from ..pdf import text_to_pdf
-                    p = text_to_pdf(self.ans.cl, str(self.out / "cover_letter.pdf"))
+                    pre = Path(self.resume_pdf).with_name("cover_letter.pdf") if self.resume_pdf else None
+                    p = str(pre) if pre and pre.exists() else text_to_pdf(self.ans.cl, str(self.out / "cover_letter.pdf"))
                     el.set_input_files(p); self.filled.append("cover_letter_file"); page.wait_for_timeout(800); return
             except Exception as e:
                 self.log.append(f"cl upload: {str(e)[:100]}")
@@ -250,8 +281,13 @@ class BaseSubmitter:
                 self.fill_generic(page)
                 page.wait_for_timeout(800)
                 self.shot(page, "filled")
+                self.missing = self.unfilled_required(page)
+                if self.missing:
+                    self.log.append("Unfilled required: " + " | ".join(self.missing))
                 if self.dry_run:
                     return self._result(False)
+                if self.missing:
+                    raise NeedsManual("REQUIRED_UNANSWERED", "Required fields left blank instead of guessing: " + "; ".join(self.missing[:8]))
                 self.submit(page)
                 self.shot(page, "after_submit")
                 if self.captcha_present(page):
@@ -274,4 +310,5 @@ class BaseSubmitter:
                 browser.close()
 
     def _result(self, submitted, confirmed=True):
-        return {"submitted": submitted, "confirmed": confirmed, "screenshots": self.shots, "filled": self.filled, "log": self.log}
+        return {"submitted": submitted, "confirmed": confirmed, "screenshots": self.shots, "filled": self.filled, "log": self.log,
+                "missing": getattr(self, "missing", [])}

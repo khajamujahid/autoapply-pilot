@@ -1,3 +1,4 @@
+import re
 import csv
 import io
 import shutil
@@ -12,6 +13,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .ai import PROVIDERS, Provider, AIConfig, AIError
 from .ats import detect, SUPPORTED
+from .matcher import score
+from .db import now
 from .auth import current_user, LoginRequired, pwd, oauth, valid_email, create_user
 from .config import SECRET_KEY, DATA_DIR, RUN_WORKER_IN_PROCESS, ALLOW_SIGNUP, APP_NAME, BASE_URL
 from .crypto import enc, dec
@@ -127,7 +130,7 @@ async def google_cb(request: Request):
 
 # ---------------------------------------------------------------- dashboard / tracker
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, status: str = "", q: str = "", ats: str = ""):
+def dashboard(request: Request, status: str = "", q: str = "", ats: str = "", view: str = "board"):
     user = current_user(request)
     with SessionLocal() as s:
         counts = dict(s.execute(select(Application.status, func.count()).where(Application.user_id == user.id)
@@ -144,7 +147,15 @@ def dashboard(request: Request, status: str = "", q: str = "", ats: str = ""):
         apps = list(s.scalars(qy.order_by(Application.updated_at.desc()).limit(500)))
         st = s.get(Settings, user.id); prof = s.get(Profile, user.id)
     setup = {"resume": bool(prof.resume_text), "ai": st.ai_provider != "mock"}
-    return render(request, "dashboard.html", user, apps=apps, counts=counts, f_status=status, f_q=q, f_ats=ats, st=st, setup=setup)
+    stage = lambda x: ("Applied" if x == "APPLIED" else "Interview" if x == "INTERVIEW" else "Offer" if x == "OFFER" else
+                       "Closed" if x in ("REJECTED", "WITHDRAWN", "SKIPPED") else "Draft")
+    board = {k: [a for a in apps if stage(a.status) == k] for k in ("Draft", "Applied", "Interview", "Offer", "Closed")}
+    c = lambda *ks: sum(counts.get(k, 0) for k in ks)
+    after_applied = ("APPLIED", "INTERVIEW", "OFFER")
+    funnel = [("Drafted", c(*[x for x in STATUSES if x != "DISCOVERED"])), ("Applied", c(*after_applied) + c("REJECTED")),
+              ("Interview", c("INTERVIEW", "OFFER")), ("Offer", c("OFFER"))]
+    return render(request, "dashboard.html", user, apps=apps, counts=counts, f_status=status, f_q=q, f_ats=ats, st=st, setup=setup,
+                  view=view, board=board, funnel=funnel)
 
 
 @app.post("/applications/add")
@@ -169,9 +180,121 @@ def add_urls(request: Request, urls: str = Form(...)):
 @app.get("/applications/{app_id}", response_class=HTMLResponse)
 def app_detail(request: Request, app_id: int):
     user = current_user(request)
+    from .docs_engine import versions, LANGS, TONES
+    from .pdf import THEME_LABELS
+    from .db import ChatMsg
     with SessionLocal() as s:
         a = own_app(s, user, app_id)
-    return render(request, "detail.html", user, a=a, shots=[Path(p).name for p in a.screenshots or []])
+        st = s.get(Settings, user.id)
+        vers = {k: versions(s, a.id, k) for k in ("resume", "cover", "email")}
+        chat = list(s.scalars(select(ChatMsg).where(ChatMsg.app_id == a.id).order_by(ChatMsg.id)))
+    x = st.extra or {}
+    return render(request, "detail.html", user, a=a, shots=[Path(p).name for p in a.screenshots or []], vers=vers, chat=chat,
+                  THEMES=THEME_LABELS, LANGS=LANGS, TONES=TONES, theme=a.theme or x.get("theme", "classic"),
+                  lang=x.get("language", "en"), tone=x.get("tone", "professional"), tab=request.query_params.get("tab", "match"))
+
+
+def _ai_for(s, user_id):
+    st = s.get(Settings, user_id)
+    return Provider(AIConfig.from_settings(st)), (st.extra or {})
+
+
+@app.post("/applications/{app_id}/draft")
+def app_draft(request: Request, app_id: int, tone: str = Form("professional"), language: str = Form("en"),
+              rematch: bool = Form(False)):
+    """Build the match view + tailored resume, cover letter and email right now (no auto-apply)."""
+    user = current_user(request)
+    from .docs_engine import generate
+    from .worker import render_docs
+    from .fetcher import fetch_job
+    with SessionLocal() as s:
+        a = own_app(s, user, app_id); prof = s.get(Profile, user.id); ai, x = _ai_for(s, user.id)
+        if not a.job_description and a.url.startswith("http"):
+            try:
+                j = fetch_job(a.url); a.title = a.title or j["title"]; a.company = a.company or j["company"]
+                a.job_description = j["description"]
+            except Exception as e:
+                flash(request, f"Could not fetch the posting: {e}", "err")
+        if rematch:
+            a.requirements = []
+        warns = generate(s, a, prof, ai, tone=tone, lang=language)
+        render_docs(a, prof, x.get("theme"))
+        if a.status in ("DISCOVERED", "SKIPPED"):
+            a.status = "REVIEW"
+        s.commit()
+    flash(request, "Drafts ready." + (" " + " | ".join(warns) if warns else ""), "ok")
+    return RedirectResponse(f"/applications/{app_id}?tab=docs", 303)
+
+
+@app.post("/applications/{app_id}/chat")
+def app_chat(request: Request, app_id: int, kind: str = Form("resume"), message: str = Form(...)):
+    user = current_user(request)
+    from .docs_engine import refine
+    from .worker import render_docs
+    kind = kind if kind in ("resume", "cover", "email") else "resume"
+    with SessionLocal() as s:
+        a = own_app(s, user, app_id); prof = s.get(Profile, user.id); ai, x = _ai_for(s, user.id)
+        reply = refine(s, a, prof, ai, kind, message, x.get("language", "en"))
+        render_docs(a, prof, x.get("theme")); s.commit()
+    flash(request, reply)
+    return RedirectResponse(f"/applications/{app_id}?tab=docs&kind={kind}", 303)
+
+
+@app.post("/applications/{app_id}/version/{kind}/{op}")
+def app_version(request: Request, app_id: int, kind: str, op: str, vid: int = Form(0)):
+    user = current_user(request)
+    from .docs_engine import undo, restore
+    from .worker import render_docs
+    with SessionLocal() as s:
+        a = own_app(s, user, app_id); prof = s.get(Profile, user.id); _, x = _ai_for(s, user.id)
+        ok = undo(s, a, kind) if op == "undo" else restore(s, a, kind, vid)
+        render_docs(a, prof, x.get("theme")); s.commit()
+    flash(request, ("Undone." if op == "undo" else "Version restored.") if ok else "Nothing to undo.", "ok" if ok else "err")
+    return RedirectResponse(f"/applications/{app_id}?tab=docs&kind={kind}", 303)
+
+
+@app.post("/applications/{app_id}/theme")
+def app_theme(request: Request, app_id: int, theme: str = Form("classic")):
+    user = current_user(request)
+    from .worker import render_docs
+    with SessionLocal() as s:
+        a = own_app(s, user, app_id); prof = s.get(Profile, user.id)
+        a.theme = theme; render_docs(a, prof, theme); s.commit()
+    return RedirectResponse(f"/applications/{app_id}?tab=docs", 303)
+
+
+@app.get("/applications/{app_id}/pdf/{kind}")
+def app_pdf(request: Request, app_id: int, kind: str, theme: str = ""):
+    user = current_user(request)
+    from .pdf import text_to_pdf, letter_to_pdf
+    from .docs_engine import _contact
+    from .worker import _art
+    from .profile import full_name
+    with SessionLocal() as s:
+        a = own_app(s, user, app_id); prof = s.get(Profile, user.id); _, x = _ai_for(s, user.id)
+    th = theme or a.theme or x.get("theme", "classic")
+    slug = re.sub(r"\W+", "_", f"{full_name(prof)}_{a.company}")[:60]
+    if kind == "resume":
+        p = text_to_pdf(a.tailored_resume or "", str(_art(a) / f"resume_{th}.pdf"), th); fn = f"{slug}_Resume.pdf"
+    else:
+        p = letter_to_pdf(a.cover_letter or "", str(_art(a) / f"cover_{th}.pdf"), full_name(prof), _contact(prof), th)
+        fn = f"{slug}_Cover_Letter.pdf"
+    return FileResponse(p, filename=fn, media_type="application/pdf")
+
+
+@app.post("/applications/paste")
+def app_paste(request: Request, title: str = Form(...), company: str = Form(""), url: str = Form(""), description: str = Form(...)):
+    """Paste a posting's text: create a draft application without auto-apply."""
+    user = current_user(request)
+    with SessionLocal() as s:
+        a = Application(user_id=user.id, url=url.strip() or f"manual:{now().timestamp()}", apply_url=url.strip(), source="pasted",
+                        ats=detect(url)[0] if url.strip() else "unknown", title=title.strip(), company=company.strip(),
+                        job_description=description.strip(), status="REVIEW")
+        prof = s.get(Profile, user.id)
+        m = score(prof, a.title, a.job_description); a.match_score, a.match_details = m["score"], m
+        s.add(a); s.commit(); aid = a.id
+        x = s.get(Settings, user.id).extra or {}
+    return app_draft(request, aid, tone=x.get("tone", "professional"), language=x.get("language", "en"), rematch=False)
 
 
 @app.post("/applications/{app_id}/action")
@@ -182,11 +305,15 @@ def app_action(request: Request, app_id: int, action: str = Form(...), tailored_
     with SessionLocal() as s:
         a = own_app(s, user, app_id)
         if tailored_resume is not None and tailored_resume != a.tailored_resume:
-            a.tailored_resume = tailored_resume
+            from .docs_engine import save_version
+            save_version(s, a, "resume", tailored_resume, "manual edit")
             if a.tailored_resume_pdf:
-                text_to_pdf(a.tailored_resume, a.tailored_resume_pdf)
-        if cover_letter is not None:
-            a.cover_letter = cover_letter
+                text_to_pdf(a.tailored_resume, a.tailored_resume_pdf, a.theme or "classic")
+        if cover_letter is not None and cover_letter != a.cover_letter:
+            from .docs_engine import save_version
+            save_version(s, a, "cover", cover_letter, "manual edit")
+        if tailored_resume is not None and tailored_resume != (a.tailored_resume or ""):
+            pass
         if action == "approve" and a.status == "REVIEW":
             a.status = "APPROVED"
         elif action == "queue" and a.status in ("DISCOVERED", "SKIPPED"):
@@ -195,6 +322,11 @@ def app_action(request: Request, app_id: int, action: str = Form(...), tailored_
             a.status, a.error = ("APPROVED" if a.tailored_resume else "QUEUED"), ""
         elif action == "reject":
             a.status = "SKIPPED"
+        elif action in ("INTERVIEW", "OFFER", "REJECTED", "WITHDRAWN", "APPLIED"):
+            from .db import now
+            a.status = action
+            if action == "APPLIED" and not a.applied_at:
+                a.applied_at = now()
         elif action == "mark_applied":
             from .db import now
             a.status, a.applied_at = "APPLIED", now()
@@ -442,14 +574,19 @@ def settings_page(request: Request):
     user = current_user(request)
     with SessionLocal() as s:
         st = s.get(Settings, user.id)
-    return render(request, "settings.html", user, st=st, PROVIDERS=PROVIDERS, has_key=bool(st.ai_api_key_enc))
+    from .docs_engine import LANGS, TONES
+    from .pdf import THEME_LABELS
+    return render(request, "settings.html", user, st=st, PROVIDERS=PROVIDERS, has_key=bool(st.ai_api_key_enc), x=st.extra or {},
+                  LANGS=LANGS, TONES=TONES, THEMES=THEME_LABELS)
 
 
 @app.post("/settings")
 def settings_save(request: Request, ai_provider: str = Form("mock"), ai_api_key: str = Form(""), ai_model: str = Form(""),
                   ai_base_url: str = Form(""), dry_run: bool = Form(False), require_review: bool = Form(False),
                   auto_approve_above: float = Form(0), min_match_score: float = Form(0), daily_limit: int = Form(20),
-                  clear_key: bool = Form(False)):
+                  clear_key: bool = Form(False), language: str = Form("en"), tone: str = Form("professional"),
+                  theme: str = Form("classic"), jsearch_key: str = Form(""), adzuna_app_id: str = Form(""),
+                  adzuna_app_key: str = Form(""), arbeitsagentur: bool = Form(False)):
     user = current_user(request)
     with SessionLocal() as s:
         st = s.get(Settings, user.id)
@@ -462,6 +599,13 @@ def settings_save(request: Request, ai_provider: str = Form("mock"), ai_api_key:
         st.dry_run, st.require_review = dry_run, require_review
         st.auto_approve_above, st.min_match_score = max(0, auto_approve_above), max(0, min_match_score)
         st.daily_limit = max(0, min(daily_limit, 200))
+        x = dict(st.extra or {})
+        x.update(language=language, tone=tone, theme=theme, arbeitsagentur=arbeitsagentur, adzuna_app_id=adzuna_app_id.strip())
+        if jsearch_key.strip():
+            x["jsearch_key"] = jsearch_key.strip()
+        if adzuna_app_key.strip():
+            x["adzuna_app_key"] = adzuna_app_key.strip()
+        st.extra = x
         s.commit()
     flash(request, "Settings saved."); return RedirectResponse("/settings", 303)
 

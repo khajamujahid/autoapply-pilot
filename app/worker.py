@@ -65,18 +65,29 @@ def prepare(a, s):
     if st.min_match_score and m["score"] < st.min_match_score:
         a.status = "SKIPPED"; note(a, f"Below your minimum match score {st.min_match_score}"); s.commit(); return
     a.status = "OPTIMIZING_RESUME"; s.commit()
-    a.tailored_resume = ai.tailor_resume(profile_text(prof), a.title, a.company, a.job_description, m)
-    a.tailored_resume_pdf = text_to_pdf(a.tailored_resume, str(_art(a) / "tailored_resume.pdf"))
-    note(a, f"Resume tailored with {st.ai_provider}")
+    from .docs_engine import generate
+    x = st.extra or {}
+    warns = generate(s, a, prof, ai, tone=x.get("tone", "professional"), lang=x.get("language", "en"))
+    render_docs(a, prof, x.get("theme", "classic"))
+    covered = sum(1 for r in a.requirements or [] if r["covered"])
+    note(a, f"Resume, cover letter and email drafted with {st.ai_provider}; requirements covered {covered}/{len(a.requirements or [])}"
+         + (". Check: " + " | ".join(warns) if warns else ""))
     a.status = "OPTIMIZING_CL"; s.commit()
-    a.cover_letter = ai.cover_letter(profile_text(prof), full_name(prof), a.title, a.company, a.job_description, m)
-    note(a, "Cover letter written")
     auto = st.auto_approve_above and m["score"] >= st.auto_approve_above
     if not st.require_review or auto:
         a.status = "APPROVED"; note(a, "Auto-approved" + (f" (score >= {st.auto_approve_above})" if auto else ""))
     else:
         a.status = "REVIEW"; note(a, "Waiting for your review")
     s.commit()
+
+
+def render_docs(a, prof, theme=None):
+    """(Re)render the current tailored resume + cover letter PDFs; these are what auto-apply uploads."""
+    from .pdf import text_to_pdf, letter_to_pdf
+    from .docs_engine import _contact
+    th = a.theme or theme or "classic"
+    a.tailored_resume_pdf = text_to_pdf(a.tailored_resume, str(_art(a) / "tailored_resume.pdf"), th)
+    letter_to_pdf(a.cover_letter, str(_art(a) / "cover_letter.pdf"), full_name(prof), _contact(prof), th)
 
 
 def _art(a):
@@ -94,7 +105,9 @@ def apply(a, s):
     ans = Answerer(prof, ai, a.cover_letter)
     a.attempts += 1
     # With the offline mock provider the "tailored" text is just a header + raw text, so send the original resume file.
-    resume = prof.resume_path if st.ai_provider == "mock" and prof.resume_path else (a.tailored_resume_pdf or prof.resume_path)
+    if a.tailored_resume:
+        render_docs(a, prof, (st.extra or {}).get("theme"))  # upload the latest version of the drafts
+    resume = a.tailored_resume_pdf or prof.resume_path
     try:
         res = cls(a, prof, ans, resume, creds, dry_run=st.dry_run).run()
     finally:
