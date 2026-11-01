@@ -24,6 +24,8 @@ Worker (app/worker.py): DB-backed queue, in-process thread or a separate contain
 | `app/profile.py` | Profile schema, standard answers, PDF/DOCX text extraction, rule-based answers |
 | `app/answerer.py` | Answers a question: profile rules first, then AI; records every answer used |
 | `app/ats.py`, `app/fetcher.py` | ATS detection from URL; JD fetch via public board APIs with HTML fallback |
+| `app/docs_engine.py` | Requirement extraction + coverage (AI or built-in), tailored resume / cover letter / email drafting with truth rules, fact check, chat refinement, versions (undo/restore) |
+| `app/pdf.py` | 10 ATS-friendly resume/cover-letter PDF themes (fpdf2) |
 | `app/roles.py` | Derives target roles, keywords and seniority from any resume (user's AI, or built-in cross-industry title taxonomy) |
 | `app/discovery.py` | JobSpy (LinkedIn/Indeed/Glassdoor/ZipRecruiter/Google), The Muse, Remotive, Arbeitnow, Adzuna, USAJobs, company boards; run in parallel, role-title gate, location/date filter, dedupe (URL + company/title), fit ranking (35% title fit + 65% profile match), saved searches |
 | `app/profile.py` | `QUESTION_SECTIONS` (Application Questions), `rule_answer` (exact + regex rules), `custom_answer` (fuzzy match against the user's Q&A), `add_unknown_questions` |

@@ -47,3 +47,10 @@ When you're happy, turn **Dry run** off in Settings. Real submissions respect yo
 The **Tracker** shows counts per status, filters, bulk actions and **Export CSV**.
 
 ![Tracker](screenshots/tracker.svg)
+
+
+## Tailor documents for a job (v1.2)
+Open any job (or paste a posting on the Tracker). **🎯 Match** shows each requirement as covered or gap. Click **✨ Tailor resume, cover letter & email**, pick tone and language. In **📝 Documents**, refine with chat, undo or restore versions, choose one of 10 themes and download PDFs. The **Email** tab opens your mail app with the draft. Move jobs through Applied → Interview → Offer from the **Apply & log** tab and watch the **Board** and **Funnel** on the Tracker.
+
+![Match view](screenshots/match.svg)
+![Documents](screenshots/documents.svg)

@@ -12,6 +12,12 @@ ApplyPilot finds jobs, scores how well each one matches you, and tailors your re
 - **Accounts:** email/password sign-up and **Sign in with Google**. Every user's data is fully isolated.
 - **Bring your own AI:** pick a provider, paste a key, choose a model, and click **Test connection**. Keys are encrypted at rest (Fernet). One provider layer handles resume parsing, tailoring, cover letters, question answers and match explanations. A built-in **mock** mode works with no key at all.
 - **Profile builder:** upload a PDF or DOCX resume and the AI fills in your profile. Add standard answers (work authorization, sponsorship, relocation, salary, notice, how you heard, and EEO questions, which default to *decline*). An **encrypted credential store** holds Workday logins.
+- **Tailored documents per job (v1.2):** for every job ApplyPilot drafts a tailored resume, a cover letter and an application email, using **only facts from your profile**. A built-in fact check flags any term the draft uses that your profile doesn't support.
+- **Match view (v1.2):** the posting's requirements side by side with your profile. Each one is marked *covered* (with the evidence from your profile) or *gap*. Gaps are never written into your documents.
+- **Refine in chat, with undo and history (v1.2):** ask for changes ("make it shorter", "highlight NetSuite", "more formal"). Every change, manual edit or regeneration is a new version; undo or restore any earlier one. Without an AI key the built-in editor handles shorten / remove / highlight and refuses to add anything not in your profile.
+- **10 ATS-friendly PDF themes (v1.2):** Classic, Modern, Minimal, Compact, Executive, Serif, Slate, Emerald, Centered, Monospace. Real selectable text, one column, no tables or images. Download resume and cover letter PDFs; auto-apply uploads the current version in your chosen theme.
+- **Tracker board, table and funnel (v1.2):** Draft → Applied → Interview → Offer → Closed, plus "paste a job posting" to draft documents for any job, even without a link.
+- **More sources and models (v1.2):** optional JSearch (RapidAPI key) and Bundesagentur für Arbeit (Germany, opt-in) job sources; Adzuna keys can be set in Settings. **Ollama** and **LM Studio** local models (nothing leaves your machine) alongside Grok, Gemini, Claude, OpenAI and any OpenAI-compatible API. Documents in 12 output languages (headings translated in built-in mode; full text with an AI model), with a tone of your choice.
 - **Discover (any profession, v1.1):** ApplyPilot reads your resume and works out the roles to search for (software engineer, network engineer, nurse, accountant, electrician... anything), using your own AI key when set and a built-in title/keyword extractor otherwise. It then searches **LinkedIn, Indeed, Glassdoor, ZipRecruiter and Google Jobs** (via the MIT-licensed [python-jobspy](https://github.com/speedyapply/JobSpy)), **The Muse**, **Remotive**, **Arbeitnow**, optional **Adzuna** and **USAJobs** (free keys), and any Greenhouse/Lever/Ashby company boards you add. Results are de-duplicated and ranked by fit. **The only filters are location (or Remote) and date posted.** Override the roles any time with *Profile → Target roles*. Saved searches can run on a schedule and auto-queue jobs above a score.
 - **Application Questions (v1.1):** answer the questions every Workday/Greenhouse/Lever/Ashby/iCIMS form asks once (legal/preferred name, address, links, work authorization, sponsorship, citizenship and export control, EEO with *Decline*, 18+, relocation, remote preference, start date, notice, salary, education, years, previous employment, relatives, non-compete, background check, clearance, languages, how you heard) plus your own custom Q&A. Shown during onboarding after resume upload and editable from Settings. The form-filler matches questions exactly and fuzzily, uses your AI when a key is set, and saves any new question it meets to your Q&A so you answer it only once.
 - **Pipeline:** `QUEUED → OPTIMIZING_RESUME → OPTIMIZING_CL → REVIEW → APPROVED → APPLYING → APPLIED | DRY_RUN_DONE | NEEDS_MANUAL | FAILED`
@@ -48,6 +54,9 @@ Then open http://localhost:8077 and **create an account**:
 4. Review the tailored resume and cover letter, then **Approve**.
 
 ## Bring your own AI
+
+Local models: install [Ollama](https://ollama.com), run `ollama pull qwen2.5:7b`, then pick **Ollama** in Settings (base URL `http://localhost:11434/v1`, no key) and press *Test connection*. From Docker use `http://host.docker.internal:11434/v1`.
+
 | Provider | Where to get a key | Default model |
 |---|---|---|
 | Grok (xAI) | https://console.x.ai | `grok-4` |
@@ -88,7 +97,7 @@ If you host ApplyPilot for other people, put it behind HTTPS (Caddy, nginx or a 
 
 ## Configuration (`.env`)
 
-Optional job-source keys (free): `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` (https://developer.adzuna.com) and `USAJOBS_API_KEY` / `USAJOBS_EMAIL` (https://developer.usajobs.gov). Without them those two sources are skipped; all others need no key.
+Optional job-source keys (also settable per user in Settings): `JSEARCH_API_KEY` (RapidAPI JSearch), `ARBEITSAGENTUR=on` (opt-in; no official API, its terms don't allow automated access), and free: `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` (https://developer.adzuna.com) and `USAJOBS_API_KEY` / `USAJOBS_EMAIL` (https://developer.usajobs.gov). Without them those two sources are skipped; all others need no key.
 
 | Variable | Default | Purpose |
 |---|---|---|
