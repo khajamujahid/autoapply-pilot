@@ -13,6 +13,8 @@ PROVIDERS = {
     "gemini": {"label": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-2.5-flash"},
     "anthropic": {"label": "Anthropic Claude", "base_url": "https://api.anthropic.com/v1", "model": "claude-sonnet-4-5"},
     "openai": {"label": "OpenAI", "base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+    "ollama": {"label": "Ollama (local, private, no key)", "base_url": "http://localhost:11434/v1", "model": "qwen2.5:7b"},
+    "lmstudio": {"label": "LM Studio (local, no key)", "base_url": "http://localhost:1234/v1", "model": "local-model"},
     "custom": {"label": "Custom (OpenAI-compatible)", "base_url": "", "model": ""},
     "mock": {"label": "Mock (offline, no key)", "base_url": "", "model": "mock"},
 }
@@ -48,7 +50,7 @@ class Provider:
         c = self.cfg
         if self.is_mock:
             return MockBrain.complete(system, user)
-        if not c.api_key and c.provider != "custom":
+        if not c.api_key and c.provider not in ("custom", "ollama", "lmstudio"):
             raise AIError("No API key set. Add one in Settings.")
         try:
             if c.provider == "anthropic":
@@ -62,7 +64,7 @@ class Provider:
                     "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
             if json_mode and c.provider in ("openai", "xai"):
                 body["response_format"] = {"type": "json_object"}
-            r = httpx.post(f"{c.base_url}/chat/completions", timeout=120,
+            r = httpx.post(f"{c.base_url}/chat/completions", timeout=300 if c.provider in ("ollama", "lmstudio") else 120,
                            headers={"Authorization": f"Bearer {c.api_key}"} if c.api_key else {}, json=body)
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"].strip()
