@@ -222,9 +222,15 @@ def _ai_doc(ai, kind, prof, title, company, jd, reqs, tone, lang):
     lang_s = LANGS.get(lang, "English")
     if kind == "resume":
         return ai.complete(f"Write a tailored, ATS-friendly resume in {lang_s} for this job. Plain text. First line = full name, "
-                           "second line = contact details separated by ' | '. Then UPPERCASE section headings (SUMMARY, SKILLS, "
-                           "EXPERIENCE, EDUCATION, plus others only if in profile). Experience lines 'Title - Company (Start - End)' "
-                           "followed by '- ' bullets. Lead with what this job needs. " + TRUTH, ctx, 2200)
+                           "second line = a headline matching the target role, third line = contact details separated by ' | '. Then exactly "
+                           "these UPPERCASE sections in this order: PROFESSIONAL SUMMARY (3-4 justified lines, wrap the job's key "
+                           "phrases the candidate really has in **double asterisks**), TECHNICAL SKILLS (one 'Category: item, item' "
+                           "line per group, most relevant groups first), PROFESSIONAL EXPERIENCE (newest first; for each role a line "
+                           "'Company | City, ST | Start - End', then the job title on its own line, then '- ' bullets), EDUCATION "
+                           "('School | City, ST | Start - End' then the degree line). No certifications, projects or interests "
+                           "sections. Keep every employer, title and date exactly as in the profile; only rewrite the summary, "
+                           "skills emphasis and bullets toward the job's keywords. "
+                           "Lead with what this job needs. " + TRUTH, ctx, 2200)
     if kind == "cover":
         return ai.complete(f"Write a {tone} cover letter in {lang_s}, 180-260 words, specific to this job, grounded in the covered "
                            "requirements. Greeting, 3 short paragraphs, sign-off with the candidate's name. " + TRUTH, ctx, 900)

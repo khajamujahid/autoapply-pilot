@@ -216,7 +216,7 @@ def app_detail(request: Request, app_id: int):
         chat = list(s.scalars(select(ChatMsg).where(ChatMsg.app_id == a.id).order_by(ChatMsg.id)))
     x = st.extra or {}
     return render(request, "detail.html", user, a=a, shots=[Path(p).name for p in a.screenshots or []], vers=vers, chat=chat,
-                  THEMES=THEME_LABELS, LANGS=LANGS, TONES=TONES, theme=a.theme or x.get("theme", "classic"),
+                  THEMES=THEME_LABELS, LANGS=LANGS, TONES=TONES, theme=a.theme or x.get("theme", "ats"),
                   lang=x.get("language", "en"), tone=x.get("tone", "professional"), tab=request.query_params.get("tab", "match"))
 
 
@@ -280,7 +280,7 @@ def app_version(request: Request, app_id: int, kind: str, op: str, vid: int = Fo
 
 
 @app.post("/applications/{app_id}/theme")
-def app_theme(request: Request, app_id: int, theme: str = Form("classic")):
+def app_theme(request: Request, app_id: int, theme: str = Form("ats")):
     user = current_user(request)
     from .worker import render_docs
     with SessionLocal() as s:
@@ -298,7 +298,7 @@ def app_pdf(request: Request, app_id: int, kind: str, theme: str = ""):
     from .profile import full_name
     with SessionLocal() as s:
         a = own_app(s, user, app_id); prof = s.get(Profile, user.id); _, x = _ai_for(s, user.id)
-    th = theme or a.theme or x.get("theme", "classic")
+    th = theme or a.theme or x.get("theme", "ats")
     slug = re.sub(r"\W+", "_", f"{full_name(prof)}_{a.company}")[:60]
     if kind == "resume":
         p = text_to_pdf(a.tailored_resume or "", str(_art(a) / f"resume_{th}.pdf"), th); fn = f"{slug}_Resume.pdf"
@@ -334,7 +334,7 @@ def app_action(request: Request, app_id: int, action: str = Form(...), tailored_
             from .docs_engine import save_version
             save_version(s, a, "resume", tailored_resume, "manual edit")
             if a.tailored_resume_pdf:
-                text_to_pdf(a.tailored_resume, a.tailored_resume_pdf, a.theme or "classic")
+                text_to_pdf(a.tailored_resume, a.tailored_resume_pdf, a.theme or "ats")
         if cover_letter is not None and cover_letter != a.cover_letter:
             from .docs_engine import save_version
             save_version(s, a, "cover", cover_letter, "manual edit")
@@ -632,7 +632,7 @@ def settings_save(request: Request, ai_provider: str = Form("mock"), ai_api_key:
                   ai_base_url: str = Form(""), dry_run: bool = Form(False), require_review: bool = Form(False),
                   auto_approve_above: float = Form(0), min_match_score: float = Form(0), daily_limit: int = Form(20),
                   clear_key: bool = Form(False), language: str = Form("en"), tone: str = Form("professional"),
-                  theme: str = Form("classic"), jsearch_key: str = Form(""), adzuna_app_id: str = Form(""),
+                  theme: str = Form("ats"), jsearch_key: str = Form(""), adzuna_app_id: str = Form(""),
                   adzuna_app_key: str = Form(""), arbeitsagentur: bool = Form(False)):
     user = current_user(request)
     with SessionLocal() as s:

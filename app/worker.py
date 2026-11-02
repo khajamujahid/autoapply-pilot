@@ -68,7 +68,7 @@ def prepare(a, s):
     from .docs_engine import generate
     x = st.extra or {}
     warns = generate(s, a, prof, ai, tone=x.get("tone", "professional"), lang=x.get("language", "en"))
-    render_docs(a, prof, x.get("theme", "classic"))
+    render_docs(a, prof, x.get("theme", "ats"))
     covered = sum(1 for r in a.requirements or [] if r["covered"])
     note(a, f"Resume, cover letter and email drafted with {st.ai_provider}; requirements covered {covered}/{len(a.requirements or [])}"
          + (". Check: " + " | ".join(warns) if warns else ""))
@@ -85,7 +85,7 @@ def render_docs(a, prof, theme=None):
     """(Re)render the current tailored resume + cover letter PDFs; these are what auto-apply uploads."""
     from .pdf import text_to_pdf, letter_to_pdf
     from .docs_engine import _contact
-    th = a.theme or theme or "classic"
+    th = a.theme or theme or "ats"
     a.tailored_resume_pdf = text_to_pdf(a.tailored_resume, str(_art(a) / "tailored_resume.pdf"), th)
     letter_to_pdf(a.cover_letter, str(_art(a) / "cover_letter.pdf"), full_name(prof), _contact(prof), th)
 
