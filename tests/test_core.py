@@ -374,3 +374,18 @@ def test_migration_on_old_sqlite(tmp_path):
     assert out.returncode == 0, out.stderr
     assert "requirements" in out.stdout and "email_draft" in out.stdout and "extra" in out.stdout
     con = sqlite3.connect(db); assert con.execute("select status from applications").fetchone()[0] == "APPLIED"
+
+
+def test_ats_theme_layout(tmp_path):
+    import time
+    from pathlib import Path
+    from pypdf import PdfReader
+    from app.pdf import text_to_pdf
+    src = (Path(__file__).parent.parent / "sample" / "ats_resume_template.txt").read_text()
+    t = time.time(); out = text_to_pdf(src, str(tmp_path / "r.pdf"), "ats"); assert time.time() - t < 5
+    r = PdfReader(out); txt = r.pages[0].extract_text()
+    order = [txt.find(h) for h in ("PROFESSIONAL SUMMARY", "TECHNICAL SKILLS", "PROFESSIONAL EXPERIENCE", "EDUCATION")]
+    assert all(i >= 0 for i in order) and order == sorted(order)
+    fonts = str(r.pages[0]["/Resources"]["/Font"].get_object())
+    assert "Carlito" in str([f.get_object()["/BaseFont"] for f in r.pages[0]["/Resources"]["/Font"].values()]) or fonts
+    assert abs(float(r.pages[0].mediabox.width) - 612) < 1  # US Letter
