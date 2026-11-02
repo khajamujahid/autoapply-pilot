@@ -36,7 +36,7 @@
 <a class="stat {{ 'on' if view==k }}" href="/?view={{ k }}"><b id="n-{{ k }}">{{ stats[k] }}</b><span>{{ lab }}</span></a>{% endfor %}</div>
 {% set cs = (request.session.get('last_discovery') or {}).get('cs') if request else None %}{% if cs and cs.total %}
 <div class="card small" style="padding:10px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-<span>🏢 Company career sites: scanned <b>{{ cs.next_offset }}</b> of <b>{{ "{:,}".format(cs.total) }}</b> recently active Greenhouse / Lever / Ashby boards
+<span>🏢 Company career sites: scanned <b>{{ cs.next_offset }}</b> of <b>{{ "{:,}".format(cs.total) }}</b> recently active company career sites (Greenhouse, Lever, Ashby, Workable, Recruitee)
 ({{ cs.boards_with_matches }} with matching roles this pass, {{ cs.seconds }}s){% if not cs.complete %} — this pass covered a subset{% else %} — all boards covered ✓{% endif %}.</span>
 {% if not cs.complete %}<form method="post" action="/jobs/search" style="margin-left:auto"><input type="hidden" name="next_batch" value="true"><input type="hidden" name="boards_offset" value="{{ cs.next_offset }}"><button class="btn sec sm">Scan next batch →</button></form>{% endif %}</div>{% endif %}
 <div class="prog" id="prog"><div></div></div><div class="small muted" id="msg"></div>
