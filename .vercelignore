@@ -1,6 +1,6 @@
 .venv
-data
-tests
+/data
+/tests
 *.zip
 .env
 __pycache__
