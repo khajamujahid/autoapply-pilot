@@ -1,8 +1,7 @@
+import logging
 import re
 import csv
 import io
-import shutil
-import uuid
 from pathlib import Path
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, StreamingResponse, JSONResponse
@@ -16,7 +15,8 @@ from .ats import detect, SUPPORTED
 from .matcher import score
 from .db import now
 from .auth import current_user, LoginRequired, pwd, oauth, valid_email, create_user
-from .config import SECRET_KEY, DATA_DIR, RUN_WORKER_IN_PROCESS, ALLOW_SIGNUP, APP_NAME, BASE_URL
+from .config import SECRET_KEY, DATA_DIR, RUN_WORKER_IN_PROCESS, ALLOW_SIGNUP, APP_NAME, BASE_URL, LOG_LEVEL, LOG_FORMAT, MAX_UPLOAD_MB
+from .hardening import setup_logging, RequestMiddleware, LoginThrottle
 from .crypto import enc, dec
 from .db import (SessionLocal, init_db, User, Settings, Profile, Credential, SavedSearch, Application, STATUSES,
                  ensure_user_rows)
@@ -24,9 +24,13 @@ from .discovery import search as discover, save_jobs, run_saved_search
 from .profile import FIELDS, SIMPLE_FIELDS, ANSWER_FIELDS, QUESTION_SECTIONS, extract_text
 
 HERE = Path(__file__).parent
-app = FastAPI(title=APP_NAME)
+setup_logging(LOG_LEVEL, LOG_FORMAT)
+log = logging.getLogger("app")
+app = FastAPI(title=APP_NAME, docs_url=None, redoc_url=None, openapi_url=None)
+throttle = LoginThrottle()
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, same_site="lax", max_age=60 * 60 * 24 * 14,
-                   https_only=BASE_URL.startswith("https"))
+                   https_only=BASE_URL.startswith("https"), session_cookie="applypilot_session")
+app.add_middleware(RequestMiddleware, base_url=BASE_URL)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 tpl = Jinja2Templates(directory=HERE / "templates")
 tpl.env.globals.update(APP_NAME=APP_NAME, STATUSES=STATUSES, google_enabled=oauth is not None)
@@ -88,10 +92,16 @@ def signup(request: Request, email: str = Form(...), password: str = Form(...), 
 
 @app.post("/login")
 def login(request: Request, email: str = Form(...), password: str = Form(...)):
+    key = f"{request.client.host if request.client else '-'}|{email.lower().strip()}"
+    if throttle.blocked(key):
+        flash(request, "Too many failed sign-in attempts. Try again in 10 minutes.", "err"); return RedirectResponse("/login", 303)
     with SessionLocal() as s:
         u = s.scalar(select(User).where(User.email == email.lower().strip()))
     if not u or not u.password_hash or not pwd.verify(password, u.password_hash):
+        throttle.fail(key); log.info("login failed")
         flash(request, "Wrong email or password.", "err"); return RedirectResponse("/login", 303)
+    throttle.reset(key)
+    request.session.clear()
     request.session["uid"] = u.id
     return RedirectResponse("/", 303)
 
@@ -312,8 +322,6 @@ def app_action(request: Request, app_id: int, action: str = Form(...), tailored_
         if cover_letter is not None and cover_letter != a.cover_letter:
             from .docs_engine import save_version
             save_version(s, a, "cover", cover_letter, "manual edit")
-        if tailored_resume is not None and tailored_resume != (a.tailored_resume or ""):
-            pass
         if action == "approve" and a.status == "REVIEW":
             a.status = "APPROVED"
         elif action == "queue" and a.status in ("DISCOVERED", "SKIPPED"):
@@ -455,10 +463,25 @@ def profile_resume(request: Request, file: UploadFile = File(...), parse: bool =
     if ext not in (".pdf", ".docx", ".txt"):
         flash(request, "Upload a PDF, DOCX or TXT resume.", "err"); return RedirectResponse("/profile", 303)
     d = DATA_DIR / "uploads" / f"u{user.id}"; d.mkdir(parents=True, exist_ok=True)
-    dest = d / f"resume{ext}"
-    with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    text = extract_text(str(dest))
+    dest = d / f"resume{ext}"  # fixed server-side name: the client filename never touches the path
+    data = file.file.read(MAX_UPLOAD_MB * 1024 * 1024 + 1)
+    if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
+        flash(request, f"Resume is larger than {MAX_UPLOAD_MB} MB.", "err"); return RedirectResponse("/profile", 303)
+    if not data.strip():
+        flash(request, "That file is empty.", "err"); return RedirectResponse("/profile", 303)
+    tmp = d / f"upload_tmp{ext}"
+    tmp.write_bytes(data)
+    try:
+        text = extract_text(str(tmp))
+    except Exception as e:
+        tmp.unlink(missing_ok=True); log.info("resume parse failed: %s", type(e).__name__)
+        flash(request, "We couldn't read that file. Upload a valid PDF, DOCX or TXT resume.", "err")
+        return RedirectResponse("/profile", 303)
+    if len(text.strip()) < 30:
+        tmp.unlink(missing_ok=True)
+        flash(request, "No readable text found (scanned image PDFs aren't supported). Upload a text-based resume.", "err")
+        return RedirectResponse("/profile", 303)
+    tmp.replace(dest)
     with SessionLocal() as s:
         prof, st = s.get(Profile, user.id), s.get(Settings, user.id)
         prof.resume_path, prof.resume_text = str(dest), text
@@ -639,4 +662,12 @@ def arch(request: Request):
 
 @app.get("/healthz")
 def health():
-    return {"ok": True}
+    from sqlalchemy import text
+    try:
+        with SessionLocal() as s:
+            s.execute(text("SELECT 1"))
+        db = "ok"
+    except Exception as e:  # pragma: no cover
+        db = f"error: {type(e).__name__}"
+    from . import __version__
+    return JSONResponse({"ok": db == "ok", "db": db, "version": __version__}, 200 if db == "ok" else 503)

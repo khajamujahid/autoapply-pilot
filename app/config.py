@@ -51,3 +51,6 @@ ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "true").lower() in ("1", "true", "yes")
 HEADLESS = os.getenv("HEADLESS", "true").lower() not in ("0", "false", "no")
 RUN_WORKER_IN_PROCESS = os.getenv("RUN_WORKER_IN_PROCESS", "true").lower() in ("1", "true", "yes")
 APP_NAME = "ApplyPilot"
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FORMAT = os.getenv("LOG_FORMAT", "json")  # json | text
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
