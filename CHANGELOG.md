@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.1
+- Hosted mode (`HOSTED=1`, auto-on for Vercel): Postgres URL normalisation, `/tmp` data dir, inline document drafting, auto-apply disabled with a clear note. Live demo at https://applypilot-jobs.vercel.app.
+
 ## 1.3.0 (2026-11-02) — production hardening
 - Security: cross-site POST protection, login throttling, security headers, hardened session cookie, upload size/type checks with atomic save, API docs disabled.
 - Reliability: clear errors for unreadable/empty/scanned resumes; additive DB migrations tested on old SQLite; JobSpy 429s and source failures isolated.

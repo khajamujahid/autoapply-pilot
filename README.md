@@ -1,12 +1,18 @@
 <p align="center"><img src="app/static/logo.svg" width="72" alt="ApplyPilot logo"></p>
 <h1 align="center">ApplyPilot</h1>
 <p align="center"><b>Self-hosted job auto-apply. Bring your own AI. Your data never leaves your machine.</b></p>
+<p align="center"><a href="https://applypilot-jobs.vercel.app"><b>🚀 Try the live demo: applypilot-jobs.vercel.app</b></a> (free sign-up, nothing to install)</p>
+
+> **Live demo vs self-hosted:** the hosted demo runs job discovery, profile and resume parsing, application questions, match scoring, tailored resume/cover letter/email with chat refinement, PDF themes and the tracker. **Browser auto-apply (Greenhouse/Lever/Ashby/Workday, including dry-run fills) only runs in the self-hosted app**, because it needs a real Chromium. The demo is a shared instance: bring your own AI key (stored encrypted) or use the built-in offline mode, and don't rely on it for long-term storage.
 
 ApplyPilot finds jobs, scores how well each one matches you, and tailors your resume (as a PDF) and a cover letter with the AI **you** choose (Grok, Gemini, Claude, OpenAI or any OpenAI-compatible model). It puts each application in a review queue, then fills the application on **Greenhouse, Lever and Ashby**, with **Workday** as best-effort, using a real browser. It answers dropdowns, radio buttons, checkboxes and custom questions from your saved answers plus your AI.
 
 > 🧪 **Safe by default:** every account starts in **dry-run mode**. Forms are filled and screenshotted but never submitted, and each job waits for your review. You switch these off in Settings when you're ready.
 
 ![Tracker](docs/screenshots/tracker.svg)
+
+## Deploy your own (Vercel + Postgres)
+The repo includes `index.py` and `vercel.json`. Import it in Vercel, add a Postgres database (e.g. Neon) and set `DATABASE_URL`, `SECRET_KEY`, `ENCRYPTION_KEY` (a Fernet key), `BASE_URL` and `HOSTED=1`. On Vercel, files go to `/tmp`, the background worker is off, and drafting runs inline; auto-apply is disabled.
 
 ## Features
 - **Accounts:** email/password sign-up and **Sign in with Google**. Every user's data is fully isolated.
