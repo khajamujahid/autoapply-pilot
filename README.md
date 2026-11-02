@@ -48,10 +48,13 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
 Then open http://localhost:8077 and **create an account**:
-1. Go to **Profile** and upload your resume.
-2. In **Settings**, connect your AI.
-3. Open **Discover**, or paste job links on the Tracker.
-4. Review the tailored resume and cover letter, then **Approve**.
+1. Upload your resume (PDF, DOCX or TXT with real text; scanned images aren't supported).
+2. Answer the **Application Questions** once.
+3. Optional: in **Settings**, connect your AI (or local Ollama). Everything also works without a key.
+4. Open **Discover**, choose a location and date, click **Find my jobs**.
+5. Open a job: check the **Match** view, tailor documents, refine, download PDFs, then **Approve** (dry-run stays on until you turn it off).
+
+Requirements: Python 3.10+ (3.11–3.13 tested), ~1 GB disk for Chromium. Troubleshooting: if port 8077 is busy set `PORT`; if Chromium is missing run `.venv/bin/playwright install chromium`; check `http://localhost:8077/healthz`.
 
 ## Bring your own AI
 
@@ -109,22 +112,35 @@ Optional job-source keys (also settable per user in Settings): `JSEARCH_API_KEY`
 | `ALLOW_SIGNUP` | `true` | Allow new accounts |
 | `HEADLESS` | `true` | Set `false` to watch the browser fill forms |
 | `RUN_WORKER_IN_PROCESS` | `true` | Run the worker inside the web app (`false` when using a separate worker) |
+| `DATA_DIR` | `./data` | Where the database, uploads, artifacts and generated keys live |
+| `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | Logging level and format (`json` or `text`) |
+| `MAX_UPLOAD_MB` | `10` | Resume upload size limit |
+| `JSEARCH_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `USAJOBS_API_KEY`, `USAJOBS_EMAIL`, `ARBEITSAGENTUR` | – | Optional job sources |
 
 Per-user options (dry-run, review, auto-approve threshold, minimum score, daily limit) are in **Settings** in the app.
 
-## Tests
+## Tests and release gate
 ```bash
-.venv/bin/pip install pytest
-RUN_WORKER_IN_PROCESS=false .venv/bin/python -m pytest -q tests/test_units.py
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest                    # 50+ offline unit/integration tests, no network, nothing submitted
+.venv/bin/python -m pytest --cov=app          # coverage (core modules ~90%)
+# full gate: unit + regression + 5 angles (security, reliability, UX, performance, cross-role). Needs the app on :8077 + internet
+bash start.sh &  &&  .venv/bin/python tests/angles.py
 ```
-The unit tests check ATS detection, encryption, scoring and answer rules. They also run a local form with a fake CAPTCHA to confirm it goes to NEEDS_MANUAL.
+`tests/angles.py` exits non-zero if any check fails. It also runs a live dry-run fill on a public Greenhouse job (never submits).
 
-The end-to-end test runs two users, BYO-AI through a mock OpenAI-compatible server, discovery, review and dry-run:
-```bash
-.venv/bin/python tests/mock_ai_server.py &   # :8099
-./start.sh &                                  # :8077
-.venv/bin/python tests/e2e.py <greenhouse-url> <lever-url> <ashby-url>
-```
+## Security
+- Passwords hashed with bcrypt; AI keys and site passwords encrypted at rest (Fernet, key in `./data/.encryption_key` or `ENCRYPTION_KEY`).
+- Session cookie is HttpOnly, SameSite=Lax, and `Secure` when `BASE_URL` is https. Cross-site POSTs are rejected (Origin/Referer check). Failed logins are throttled.
+- Uploads are size-limited (`MAX_UPLOAD_MB`), type-checked and stored under a fixed server-side name; file downloads are confined to the user's own folder. Every user's data is isolated.
+- Security headers (nosniff, frame deny, referrer policy). API docs are disabled.
+- Run behind HTTPS (Caddy/nginx) if exposed to the internet, and set `ALLOW_SIGNUP=false` once your accounts exist. Back up `./data` (it holds the database and the encryption key).
+- Dependencies are pinned; check them with `pip-audit -r requirements.txt`.
+
+## Operations
+- `GET /healthz` returns `{"ok": true, "db": "ok", "version": ...}` (503 if the database is down); Docker uses it as the health check.
+- Logs are structured JSON on stdout (one line per request with request id, status and duration). `LOG_FORMAT=text` for plain logs.
+- Database upgrades run automatically at start-up (additive migrations, existing data kept).
 
 ## Responsible use
 Apply only to jobs you actually want, and keep your answers truthful. The AI is told never to invent experience, but you should still review its output. Respect each site's terms. ApplyPilot never solves or bypasses CAPTCHAs, and dry-run is on by default.
