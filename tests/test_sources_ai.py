@@ -186,3 +186,26 @@ def test_answerer_ai_error_paths_save_question():
     a = Answerer(prof, Provider(AIConfig("openai", "", "m", "u")))  # no key -> AIError -> pending question
     assert a.text("Describe a hard project") is None and a.choose("Pick a colour", ["Red", "Blue"]) is None
     assert [u["via"] for u in a.unknown] == ["pending", "pending"] and "ai_error" in a.used[-1]["via"]
+
+
+def test_career_sites_scan_batches_and_filters(monkeypatch):
+    import datetime as dt
+    import time
+    from app import career_sites as cs
+    assert cs.board_count() >= 10000
+    today = dt.date.today()
+
+    def fake(c, ats, token, name):
+        if token.endswith("7"):
+            time.sleep(0.05)
+        return [{"url": f"https://x/{ats}/{token}/1", "title": "Network Engineer", "location": "Dallas, TX", "posted": today,
+                 "ats": ats, "company": name},
+                {"url": f"https://x/{ats}/{token}/2", "title": "Chef", "location": "Dallas, TX", "posted": today, "ats": ats,
+                 "company": name}]
+    monkeypatch.setattr(cs, "_fetch", fake)
+    jobs, m = cs.scan(lambda j: "Engineer" in j["title"], offset=0, limit=200, budget_s=5)
+    assert m["scanned"] == 200 and m["next_offset"] == 200 and len(jobs) == 200 and all(j["source"] == "career_sites" for j in jobs)
+    jobs, m = cs.scan(lambda j: True, offset=cs.board_count() - 10, budget_s=5)
+    assert m["complete"] and m["next_offset"] == cs.board_count()
+    jobs, m = cs.scan(lambda j: True, offset=0, budget_s=0.01)
+    assert not m["complete"] and m["next_offset"] < cs.board_count()

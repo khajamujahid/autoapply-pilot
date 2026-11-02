@@ -23,7 +23,7 @@
 </style>
 <div class="hd"><h1>Jobs for you</h1>
 <span class="small muted">AI: <b>{{ ai_label }}</b>{% if not setup.ai %} · <a href="/settings">connect your AI</a>{% endif %} · Resume: {% if setup.resume %}<b>ATS format ✓</b>{% else %}<a href="/profile">upload</a>{% endif %}{% if st.dry_run and not HOSTED %} · <span title="Settings → Dry run">dry run ON (forms filled, not submitted)</span>{% endif %}</span>
-<div class="aa"><form method="post" action="/jobs/search" class="row" style="gap:8px"><input name="location" value="{{ f.loc }}" placeholder="City, ST or Remote" style="width:170px"><input type="hidden" name="days" value="7"><button class="btn sec">↻ Find new jobs</button></form>
+<div class="aa"><form method="post" action="/jobs/search" class="row" style="gap:8px"><input name="location" value="{{ f.loc }}" placeholder="City, ST or Remote" style="width:170px"><select name="days" style="width:120px"><option value="7">Past week</option><option value="30">Past month</option><option value="120" selected>Past 4 months</option></select><button class="btn sec">↻ Find new jobs</button></form>
 <button class="btn big" id="aa" {{ 'disabled' if not jobs or view!='recommended' }}>⚡ Auto Apply ({{ jobs|length if view=='recommended' else 0 }})</button></div></div>
 <form class="filters" method="get" action="/"><input type="hidden" name="view" value="{{ view }}">
 <div><label>Title or company</label><input name="q" value="{{ f.q }}" placeholder="e.g. network engineer"></div>
@@ -34,6 +34,11 @@
 <div class="row" style="gap:8px"><label style="margin:0;white-space:nowrap"><input type="checkbox" name="remote" value="true" style="width:auto" {{ 'checked' if f.remote }}> Remote</label><button class="btn">Filter</button></div></form>
 <div class="stats">{% for k,lab in [('recommended','Recommended'),('reviewing','Reviewing'),('applying','Applying'),('applied','Applied'),('failed','Failed / needs you')] %}
 <a class="stat {{ 'on' if view==k }}" href="/?view={{ k }}"><b id="n-{{ k }}">{{ stats[k] }}</b><span>{{ lab }}</span></a>{% endfor %}</div>
+{% set cs = (request.session.get('last_discovery') or {}).get('cs') if request else None %}{% if cs and cs.total %}
+<div class="card small" style="padding:10px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+<span>🏢 Company career sites: scanned <b>{{ cs.next_offset }}</b> of <b>{{ "{:,}".format(cs.total) }}</b> recently active Greenhouse / Lever / Ashby boards
+({{ cs.boards_with_matches }} with matching roles this pass, {{ cs.seconds }}s){% if not cs.complete %} — this pass covered a subset{% else %} — all boards covered ✓{% endif %}.</span>
+{% if not cs.complete %}<form method="post" action="/jobs/search" style="margin-left:auto"><input type="hidden" name="next_batch" value="true"><input type="hidden" name="boards_offset" value="{{ cs.next_offset }}"><button class="btn sec sm">Scan next batch →</button></form>{% endif %}</div>{% endif %}
 <div class="prog" id="prog"><div></div></div><div class="small muted" id="msg"></div>
 <div class="cards">{% for a in jobs %}{% set p = a.match_score|round|int %}
 <div class="job" data-id="{{ a.id }}"><div class="ring" style="--p:{{ p }};--c:{{ '#22c55e' if p>=60 else '#eab308' if p>=35 else '#ef4444' }}"><i>{{ p }}%</i></div>

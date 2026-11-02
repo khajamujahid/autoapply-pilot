@@ -554,7 +554,7 @@ def jobs_page(request: Request, run: int = 0):
 @app.post("/jobs/search")
 def jobs_search(request: Request, location: str = Form(""), remote_only: bool = Form(False), days: int = Form(7),
                 companies: str = Form(""), save_name: str = Form(""), every_hours: int = Form(0),
-                auto_queue_above: float = Form(0)):
+                auto_queue_above: float = Form(0), boards_offset: int = Form(0), next_batch: bool = Form(False)):
     user = current_user(request)
     if save_name:
         with SessionLocal() as s:
@@ -562,11 +562,18 @@ def jobs_search(request: Request, location: str = Form(""), remote_only: bool = 
                               companies=companies, sources=f"auto;days={days}", every_hours=every_hours,
                               auto_queue_above=auto_queue_above))
             s.commit()
-    jobs, errors, meta = discover(user.id, location, remote_only, days, companies)
+    if next_batch:  # continue the company career-site scan where the last pass stopped, same filters
+        prev = request.session.get("last_discovery") or {}
+        location, remote_only, days = prev.get("where_in", location), prev.get("remote", remote_only), prev.get("days", days)
+        jobs, errors, meta = discover(user.id, location, remote_only, days, "", sources=["career_sites"],
+                                      boards_offset=max(0, boards_offset))
+    else:
+        jobs, errors, meta = discover(user.id, location, remote_only, days, companies)
     n = save_jobs(user.id, jobs)
     request.session["last_discovery"] = {"roles": meta["roles"], "method": meta["profile"]["method"],
                                          "raw": meta["raw_counts"], "kept": meta["kept_counts"],
-                                         "where": meta["location"], "days": days}
+                                         "where": meta["location"], "days": days, "where_in": location,
+                                         "remote": remote_only, "cs": meta.get("career_sites") or {}}
     back = request.headers.get("referer") or ""
     flash(request, f"Searched {len(meta['raw_counts'])} sources for {', '.join(meta['roles'])}: {len(jobs)} matching jobs, {n} new."
           + (" Notes: " + "; ".join(errors[:2]) if errors else ""), "err" if errors and not jobs else "ok")
