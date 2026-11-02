@@ -15,7 +15,7 @@ from .ats import detect, SUPPORTED
 from .matcher import score
 from .db import now
 from .auth import current_user, LoginRequired, pwd, oauth, valid_email, create_user
-from .config import SECRET_KEY, DATA_DIR, RUN_WORKER_IN_PROCESS, ALLOW_SIGNUP, APP_NAME, BASE_URL, LOG_LEVEL, LOG_FORMAT, MAX_UPLOAD_MB
+from .config import SECRET_KEY, DATA_DIR, RUN_WORKER_IN_PROCESS, ALLOW_SIGNUP, APP_NAME, HOSTED, BASE_URL, LOG_LEVEL, LOG_FORMAT, MAX_UPLOAD_MB
 from .hardening import setup_logging, RequestMiddleware, LoginThrottle
 from .crypto import enc, dec
 from .db import (SessionLocal, init_db, User, Settings, Profile, Credential, SavedSearch, Application, STATUSES,
@@ -33,7 +33,7 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, same_site="lax", ma
 app.add_middleware(RequestMiddleware, base_url=BASE_URL)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 tpl = Jinja2Templates(directory=HERE / "templates")
-tpl.env.globals.update(APP_NAME=APP_NAME, STATUSES=STATUSES, google_enabled=oauth is not None)
+tpl.env.globals.update(HOSTED=HOSTED, APP_NAME=APP_NAME, STATUSES=STATUSES, google_enabled=oauth is not None)
 init_db()
 if RUN_WORKER_IN_PROCESS:
     from .worker import start_background
@@ -54,6 +54,22 @@ def render(request, name, user=None, **ctx):
 
 def flash(request, msg, kind="ok"):
     request.session["flash"] = {"msg": msg, "kind": kind}
+
+
+HOSTED_NOTE = ("Hosted demo: browser auto-apply runs only in the self-hosted app. "
+               "Download your tailored PDFs, open the apply link, then click Mark applied.")
+
+
+def hosted_followup(s, a):
+    """On serverless hosts there is no background worker: draft documents inline, never auto-submit."""
+    if not HOSTED:
+        return
+    if a.status == "QUEUED":
+        from .worker import _run, prepare
+        _run(prepare, a, s); a = s.get(Application, a.id)
+    if a.status == "APPROVED":
+        from .worker import note
+        a.status, a.error = "NEEDS_MANUAL", HOSTED_NOTE; note(a, HOSTED_NOTE); s.commit()
 
 
 def own_app(s, user, app_id) -> Application:
@@ -341,6 +357,7 @@ def app_action(request: Request, app_id: int, action: str = Form(...), tailored_
         elif action == "delete":
             s.delete(a); s.commit(); return RedirectResponse("/", 303)
         s.commit()
+        hosted_followup(s, a)
     return RedirectResponse(request.headers.get("referer") or f"/applications/{app_id}", 303)
 
 
@@ -348,6 +365,9 @@ def app_action(request: Request, app_id: int, action: str = Form(...), tailored_
 def bulk(request: Request, action: str = Form(...), ids: list[int] = Form([])):
     user = current_user(request)
     with SessionLocal() as s:
+        if HOSTED and action == "queue" and len(ids) > 3:
+            flash(request, "Hosted demo drafts up to 3 jobs at a time; the first 3 were processed.", "err")
+            ids = ids[:3]
         for i in ids:
             a = s.get(Application, i)
             if not a or a.user_id != user.id:
@@ -359,6 +379,10 @@ def bulk(request: Request, action: str = Form(...), ids: list[int] = Form([])):
             elif action == "delete":
                 s.delete(a)
         s.commit()
+        for i in ids:
+            a = s.get(Application, i)
+            if a and a.user_id == user.id:
+                hosted_followup(s, a)
     return RedirectResponse(request.headers.get("referer") or "/", 303)
 
 

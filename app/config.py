@@ -16,7 +16,9 @@ def _load_dotenv():
 
 _load_dotenv()
 
-DATA_DIR = Path(os.getenv("DATA_DIR", ROOT / "data")).resolve()
+HOSTED = os.getenv("HOSTED", "1" if os.getenv("VERCEL") else "").lower() in ("1", "true", "yes")
+# Serverless hosts only allow writes under /tmp; durable state lives in DATABASE_URL (Postgres) there.
+DATA_DIR = Path(os.getenv("DATA_DIR") or ("/tmp/applypilot" if HOSTED else ROOT / "data")).resolve()
 for d in ("", "uploads", "artifacts"):
     (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
 
@@ -41,7 +43,9 @@ def _rand():
     return secrets.token_urlsafe(48)
 
 
-DATABASE_URL = os.getenv("DATABASE_URL") or f"sqlite:///{DATA_DIR / 'app.db'}"
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or f"sqlite:///{DATA_DIR / 'app.db'}"
+if DATABASE_URL.startswith(("postgres://", "postgresql://")):
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL.split("://", 1)[1]
 SECRET_KEY = _persistent_secret("SECRET_KEY", _rand)
 ENCRYPTION_KEY = _persistent_secret("ENCRYPTION_KEY", _fernet)
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8077").rstrip("/")
@@ -49,7 +53,7 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "true").lower() in ("1", "true", "yes")
 HEADLESS = os.getenv("HEADLESS", "true").lower() not in ("0", "false", "no")
-RUN_WORKER_IN_PROCESS = os.getenv("RUN_WORKER_IN_PROCESS", "true").lower() in ("1", "true", "yes")
+RUN_WORKER_IN_PROCESS = os.getenv("RUN_WORKER_IN_PROCESS", "false" if HOSTED else "true").lower() in ("1", "true", "yes")
 APP_NAME = "ApplyPilot"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FORMAT = os.getenv("LOG_FORMAT", "json")  # json | text

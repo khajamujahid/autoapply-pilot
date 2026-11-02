@@ -8,5 +8,5 @@
 <a href="/docs/architecture" class="{{ 'on' if path.startswith('/docs') }}">How it works</a></nav>
 <div class="sp"></div><span class="who">{{ user.email }}</span><a class="btn sec sm" href="/logout">Sign out</a></div>
 {% endif %}
-<div class="wrap">{% if flash %}<div class="flash {{ flash.kind }}">{{ flash.msg }}</div>{% endif %}{% block body %}{% endblock %}</div>
+<div class="wrap">{% if HOSTED %}<div class="flash">Live demo: discovery, profile, questions, tailored resume/cover letter, PDFs and tracker work here. Browser auto-apply is self-hosted only (<a href="https://github.com/khajamujahid/autoapply-pilot">install locally</a>). Don't store secrets you can't afford to lose; data may be reset.</div>{% endif %}{% if flash %}<div class="flash {{ flash.kind }}">{{ flash.msg }}</div>{% endif %}{% block body %}{% endblock %}</div>
 </body></html>
