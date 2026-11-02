@@ -3,7 +3,7 @@
 <div class="card"><h2>Resume</h2><form method="post" action="/profile/resume" enctype="multipart/form-data" class="row">
 <input type="file" name="file" accept=".pdf,.docx,.txt" required style="max-width:360px"><label style="margin:0"><input type="checkbox" name="parse" value="true" checked>Auto-fill profile with AI</label>
 <button class="btn">Upload</button></form>
-<p class="small muted">{% if prof.resume_text %}✅ Current resume: {{ prof.resume_path.split('/')[-1] }} ({{ prof.resume_text|length }} characters){% else %}No resume uploaded yet.{% endif %}</p></div>
+<p class="small muted">{% if prof.resume_text %}✅ Current resume: {{ prof.resume_path.split('/')[-1] }} ({{ prof.resume_text|length }} characters) · <a href="/profile/ats.pdf">⬇ Download it in ATS format</a> (each job gets its own keyword-tailored version when you Auto Apply){% else %}No resume uploaded yet.{% endif %}</p></div>
 <form method="post" action="/profile/save"><div class="grid g2"><div class="card"><h2>Details</h2><div class="grid g2">
 {% for f in SIMPLE_FIELDS if f not in ['summary','skills'] %}<div><label>{{ f.replace('_',' ')|capitalize }}</label><input name="{{ f }}" value="{{ d.get(f,'') }}"></div>{% endfor %}</div>
 <label>Skills (comma separated, used for matching)</label><textarea name="skills" rows="3">{{ d.get('skills','') }}</textarea>

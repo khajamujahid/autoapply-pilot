@@ -147,19 +147,35 @@ def resume_builtin(prof, title, company, reqs, lang="en"):
     skills = _skills(prof)
     covered_txt = " ".join(r["text"] for r in reqs if r["covered"]).lower()
     ordered = sorted(skills, key=lambda s: (not _has(covered_txt, s), skills.index(s)))
-    L = [full_name(prof) or "Your Name", _contact(prof), "", _h("SUMMARY", lang)]
+    L = [full_name(prof) or "Your Name", title or d.get("current_title") or "", _contact(prof), "",
+         _h("SUMMARY", lang) if lang != "en" else "PROFESSIONAL SUMMARY"]
     summ = d.get("summary") or ""
     if not summ and prof.resume_text:
         m = re.search(r"SUMMARY:?\s*(.+)", prof.resume_text, re.I)
         summ = m.group(1).strip() if m else ""
-    L.append(summ or f"{d.get('current_title', '')} with {d.get('years_experience', '')} years of experience.".strip())
+    summ = summ or f"{d.get('current_title', '')} with {d.get('years_experience', '')} years of experience.".strip()
+    for s_ in ordered[:6]:  # bold the job's keywords the candidate really has
+        if _has(covered_txt, s_):
+            summ = re.sub(rf"(?<![*\w])({re.escape(s_)})(?![*\w])", r"**\1**", summ, count=1, flags=re.I)
+    L.append(summ)
     if ordered:
-        L += ["", _h("SKILLS", lang), ", ".join(ordered)]
+        hit = [s_ for s_ in ordered if _has(covered_txt, s_)]
+        rest = [s_ for s_ in ordered if s_ not in hit]
+        L += ["", _h("SKILLS", lang) if lang != "en" else "TECHNICAL SKILLS"]
+        if hit:
+            L.append("Job-Relevant Skills: " + ", ".join(hit))
+        if rest:
+            L.append(("Additional Skills: " if hit else "Core Skills: ") + ", ".join(rest))
     exp = d.get("experience") or []
-    L += ["", _h("EXPERIENCE", lang)]
+    L += ["", _h("EXPERIENCE", lang) if lang != "en" else "PROFESSIONAL EXPERIENCE"]
     if exp:
         for e in exp:
-            L.append(f"{e.get('title', '')} - {e.get('company', '')} ({e.get('start', '')} - {e.get('end', '')})".replace("( - )", ""))
+            dates = f"{e.get('start', '')} - {e.get('end', '')}".strip(" -")
+            head = " | ".join(x for x in [e.get("company", ""), e.get("location", ""), dates] if x)
+            if dates:
+                L += [head, e.get("title", "")]
+            else:
+                L.append(f"{e.get('title', '')} - {e.get('company', '')}")
             hl = e.get("highlights") or []
             hl = hl if isinstance(hl, list) else [x for x in str(hl).split("\n") if x.strip()]
             hl = sorted(hl, key=lambda h: -sum(1 for s in ordered[:8] if _has(h, s)))
@@ -176,14 +192,14 @@ def resume_builtin(prof, title, company, reqs, lang="en"):
                         L.append(part if " (" in part and len(part) < 120 and not part.endswith(".") else "- " + part.strip())
     edu = d.get("education") or []
     if edu:
-        L += ["", _h("EDUCATION", lang)] + [f"{e.get('degree', '')} - {e.get('school', '')} ({e.get('year', '')})" for e in edu]
+        L += ["", _h("EDUCATION", lang)]
+        for e in edu:
+            L += ([f"{e.get('school', '')} | {e.get('year')}", e.get("degree", "")] if e.get("year")
+                  else [f"{e.get('degree', '')} - {e.get('school', '')}"])
     else:
         m = re.search(r"EDUCATION\s*\n(.+?)(\n[A-Z]{4,}\b|$)", prof.resume_text or "", re.S)
         if m:
             L += ["", _h("EDUCATION", lang)] + [l.strip() for l in m.group(1).splitlines() if l.strip()]
-    langs = (prof.answers or {}).get("languages")
-    if langs:
-        L += ["", _h("LANGUAGES", lang), langs]
     return "\n".join(L).strip()
 
 
