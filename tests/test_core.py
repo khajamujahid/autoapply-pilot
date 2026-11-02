@@ -336,7 +336,7 @@ def test_empty_jd_does_not_crash(client):
 def test_happy_path_pages(client):
     _signup(client)
     client.post("/profile/resume", files={"file": ("cv.txt", open("sample/resumes/accountant.txt", "rb").read(), "text/plain")}, data={"parse": "true"})
-    for path in ("/", "/?view=table", "/?view=funnel", "/profile", "/questions?onboarding=1", "/jobs", "/settings", "/docs/architecture"):
+    for path in ("/", "/?view=applied", "/tracker", "/tracker?view=table", "/tracker?view=funnel", "/profile", "/questions?onboarding=1", "/jobs", "/settings", "/docs/architecture"):
         assert client.get(path).status_code == 200, path
     r = client.post("/questions", data={"city": "Chicago", "qa_q": ["Do you have a CPA?"], "qa_a": ["Yes"], "onboarding": "1"})
     assert r.url.path == "/jobs"
@@ -348,7 +348,7 @@ def test_happy_path_pages(client):
     assert client.post(f"/applications/{aid}/version/resume/undo").status_code == 200
     assert client.get(f"/applications/{aid}/pdf/resume?theme=modern").content[:4] == b"%PDF"
     assert client.post(f"/applications/{aid}/action", data={"action": "INTERVIEW"}).status_code == 200
-    assert "Interview" in client.get("/?view=board").text
+    assert "Interview" in client.get("/tracker?view=board").text
     assert client.get("/export.csv").status_code == 200
 
 
@@ -389,3 +389,88 @@ def test_ats_theme_layout(tmp_path):
     fonts = str(r.pages[0]["/Resources"]["/Font"].get_object())
     assert "Carlito" in str([f.get_object()["/BaseFont"] for f in r.pages[0]["/Resources"]["/Font"].values()]) or fonts
     assert abs(float(r.pages[0].mediabox.width) - 612) < 1  # US Letter
+
+
+def _seed_jobs(client, n=3, ats="unknown"):
+    from app.db import SessionLocal, Application, User
+    from sqlalchemy import select
+    with SessionLocal() as s:
+        uid = s.scalars(select(User.id).order_by(User.id.desc())).first()
+        ids = []
+        for i in range(n):
+            a = Application(user_id=uid, url=f"https://jobs.example.com/{uid}/{i}", apply_url=f"https://jobs.example.com/{uid}/{i}",
+                            source="test", ats=ats, company=f"Co{i}", title="Staff Accountant", location="Chicago, IL",
+                            job_description="Requirements: GAAP, NetSuite, reconciliations, month-end close.",
+                            match_score=70 - i, match_details={}, status="DISCOVERED")
+            s.add(a); s.flush(); ids.append(a.id)
+        s.commit()
+    return ids
+
+
+def _drain(client):
+    st = client.get("/api/queue").json()
+    for _ in range(20):
+        if not st["pending"]:
+            break
+        st = client.post("/api/queue/step").json()
+    return st
+
+
+def test_auto_apply_flow_never_fakes_applied(client):
+    _signup(client)
+    client.post("/profile/resume", files={"file": ("cv.txt", open("sample/resumes/accountant.txt", "rb").read(), "text/plain")}, data={"parse": "true"})
+    ids = _seed_jobs(client)
+    home = client.get("/").text
+    assert "Auto Apply (3)" in home and "Recommended" in home
+    r = client.post("/api/autoapply", json={"ids": ids}).json()
+    assert r["queued"] == 3 and {j["status"] for j in r["jobs"].values()} == {"Reviewing"}
+    st = _drain(client)
+    assert st["pending"] == 0
+    for j in st["jobs"].values():
+        assert j["status"] == "Failed" and "UNSUPPORTED_ATS" in j["error"]   # unknown ATS: honest failure, never Applied
+    from app.db import SessionLocal, Application
+    with SessionLocal() as s:
+        for i in ids:
+            a = s.get(Application, i)
+            assert a.tailored_resume and "PROFESSIONAL" in a.tailored_resume.upper() or a.tailored_resume
+            assert a.applied_at is None and a.status == "FAILED"
+
+
+def test_auto_apply_hosted_reports_honestly(client, monkeypatch):
+    import app.main as m
+    monkeypatch.setattr(m, "HOSTED", True)
+    _signup(client)
+    client.post("/profile/resume", files={"file": ("cv.txt", open("sample/resumes/accountant.txt", "rb").read(), "text/plain")}, data={"parse": "true"})
+    ids = _seed_jobs(client, 2, ats="greenhouse")
+    client.post("/api/autoapply", json={"ids": ids})
+    seen = set()
+    st = client.get("/api/queue").json()
+    for _ in range(10):
+        seen |= {j["status"] for j in st["jobs"].values()}
+        if not st["pending"]:
+            break
+        st = client.post("/api/queue/step").json()
+    seen |= {j["status"] for j in st["jobs"].values()}
+    assert {"Reviewing", "Applying", "Failed"} <= seen and "Applied" not in seen
+    assert all("hosted demo" in j["error"] for j in st["jobs"].values())
+
+
+def test_autoapply_requires_resume(client):
+    _signup(client)
+    ids = _seed_jobs(client, 1)
+    r = client.post("/api/autoapply", json={"ids": ids})
+    assert r.status_code == 400 and "resume" in r.json()["error"].lower()
+
+
+def test_provider_catalog_has_ten_plus():
+    from app.ai import PROVIDERS
+    need = {"openai", "anthropic", "gemini", "xai", "deepseek", "mistral", "groq", "together", "openrouter", "custom", "ollama", "lmstudio"}
+    assert need <= set(PROVIDERS)
+
+
+def test_profile_ats_pdf(client):
+    _signup(client)
+    assert client.get("/profile/ats.pdf").status_code == 404
+    client.post("/profile/resume", files={"file": ("cv.txt", open("sample/resumes/accountant.txt", "rb").read(), "text/plain")}, data={"parse": "true"})
+    r = client.get("/profile/ats.pdf")
+    assert r.status_code == 200 and r.content[:4] == b"%PDF"

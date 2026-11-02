@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0
+- New main view: job cards with top filters, pipeline stats (Recommended / Reviewing / Applying / Applied / Failed) and a one-click **Auto Apply** that queues every job shown.
+- Honest status flow Reviewing -> Applying -> Applied | Failed. Applied only after a real submission; unsupported sites, missing fields and the hosted demo show Failed with the reason (no "needs manual" limbo, no applied date on failures).
+- Auto Apply tailors each job's keywords into the ATS resume format before applying; profile page offers the uploaded resume converted to ATS format.
+- 13 AI providers: OpenAI (ChatGPT), Anthropic Claude, Google Gemini, Grok (xAI), DeepSeek, Mistral, Groq, Together, OpenRouter, Perplexity, Cohere, ChatGPT-compatible custom endpoint, Ollama and LM Studio.
+- Old dashboard moved to /tracker.
+
 ## 1.3.1
 - Hosted mode (`HOSTED=1`, auto-on for Vercel): Postgres URL normalisation, `/tmp` data dir, inline document drafting, auto-apply disabled with a clear note. Live demo at https://applypilot-jobs.vercel.app.
 
