@@ -1,9 +1,18 @@
 """E2E for v1.2 documents: paste posting -> match view -> drafts -> chat refine -> undo/restore -> themed PDFs -> tracker views.
 Run against a live server: python tests/e2e_documents.py http://localhost:8077 email password"""
 import re, sys, httpx
-base, email, pw = sys.argv[1], sys.argv[2], sys.argv[3]
+base, email = sys.argv[1], sys.argv[2]
+pw = sys.argv[3] if len(sys.argv) > 3 else ""
 c = httpx.Client(base_url=base, follow_redirects=True, timeout=120)
-c.post("/login", data={"email": email, "password": pw})
+if email == "--new":  # fresh user + sample accountant resume
+    import time
+    email, pw = f"e2e{time.time_ns()}@example.com", "Password123!"
+    c.post("/signup", data={"email": email, "password": pw, "name": "Priya Shah"})
+    c.post("/profile/resume", files={"file": ("cv.txt", open("sample/resumes/accountant.txt", "rb").read(), "text/plain")}, data={"parse": "true"})
+    c.post("/profile/save", data={"current_title": "Staff Accountant", "years_experience": "4",
+                                  "skills": "GAAP, Month-end close, Reconciliations, Journal entries, Accounts payable, NetSuite, QuickBooks, Excel, SAP"})
+else:
+    c.post("/login", data={"email": email, "password": pw})
 JD = """Staff Accountant
 Requirements:
 - Bachelor's degree in Accounting or Finance
@@ -17,7 +26,7 @@ Requirements:
 r = c.post("/applications/paste", data={"title": "Staff Accountant", "company": "Acme Foods", "description": JD})
 aid = int(re.search(r"/applications/(\d+)", str(r.url)).group(1)); print("✓ pasted posting -> application", aid)
 m = c.get(f"/applications/{aid}?tab=match").text
-cov = re.search(r"<b>(\d+) / (\d+)</b> requirements covered", m); print("✓ match view:", cov.group(0) if cov else "??")
+cov = re.search(r"<b>(\d+) / (\d+)</b> requirements covered", m); assert cov and cov.group(1) != "0", "match view empty"; print("✓ match view:", cov.group(0))
 print("  gaps:", m.count(">gap<"), "covered:", m.count(">covered<"))
 d = c.get(f"/applications/{aid}?tab=docs").text
 assert "Workiva" not in d.split("<h2>Job description")[0].split("Tailored resume")[1].split("Refine")[0], "invented a gap!"
@@ -35,5 +44,5 @@ e = c.get(f"/applications/{aid}?tab=docs&kind=email").text; print("✓ email dra
 for stg in ["APPLIED", "INTERVIEW"]:
     c.post(f"/applications/{aid}/action", data={"action": stg})
 for view in ["board", "table", "funnel"]:
-    t = c.get(f"/?view={view}").text; print(f"✓ tracker {view} view ok", "Interview" in t)
+    r = c.get(f"/?view={view}"); assert r.status_code == 200; print(f"✓ tracker {view} view ok")
 print("DONE", aid)

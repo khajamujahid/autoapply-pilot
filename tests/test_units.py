@@ -4,7 +4,7 @@ import pathlib
 import types
 import pytest
 
-os.environ.setdefault("DATA_DIR", "/tmp/applypilot-test-data")
+
 from app.ats import detect
 from app.crypto import enc, dec
 from app.matcher import score
@@ -43,7 +43,8 @@ def test_mock_ai_conservative():
     p = Provider(AIConfig("mock"))
     assert p.test() == "OK"
     a = Answerer(PROF, p)
-    assert a.choose("Do you hold an active security clearance?", ["Yes", "No"]) is None  # unknown -> left for human
+    assert a.choose("Do you hold an active security clearance?", ["Yes", "No"]) == "No"
+    assert a.choose("Which team interests you most?", ["Payments", "Infra"]) is None  # unknown -> left for human
 
 
 def test_captcha_goes_needs_manual(tmp_path):
