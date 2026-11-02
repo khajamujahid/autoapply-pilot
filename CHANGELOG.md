@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0
+- Find new jobs now also scans **10,448 recently active company career sites** (Greenhouse 4,565, Ashby 2,449, Workable 1,586, Lever 1,247, Recruitee 601). Each board answered its public API and had at least one posting in the last 120 days when the list was built (app/data/career_boards.json).
+- Parallel scan (64 connections, 8s per-board timeout, time budget, 30-min cache), filtered by your resume's roles, location and date; matches are ranked against your resume.
+- Hosted: each pass has a ~32s budget and covers part of the list; the dashboard says how many boards were scanned and offers "Scan next batch". Self-hosted: 240s budget covers the full list (CAREER_SITES_BUDGET).
+
 ## 1.4.0
 - New main view: job cards with top filters, pipeline stats (Recommended / Reviewing / Applying / Applied / Failed) and a one-click **Auto Apply** that queues every job shown.
 - Honest status flow Reviewing -> Applying -> Applied | Failed. Applied only after a real submission; unsupported sites, missing fields and the hosted demo show Failed with the reason (no "needs manual" limbo, no applied date on failures).

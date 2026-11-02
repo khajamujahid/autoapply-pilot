@@ -15,6 +15,7 @@ ApplyPilot finds jobs, scores how well each one matches you, and tailors your re
 The repo includes `index.py` and `vercel.json`. Import it in Vercel, add a Postgres database (e.g. Neon) and set `DATABASE_URL`, `SECRET_KEY`, `ENCRYPTION_KEY` (a Fernet key), `BASE_URL` and `HOSTED=1`. On Vercel, files go to `/tmp`, the background worker is off, and drafting runs inline; auto-apply is disabled.
 
 ## Features
+- **10,000+ company career sites:** every search also scans 10,448 recently active Greenhouse, Lever, Ashby, Workable and Recruitee boards (public APIs), on top of LinkedIn/Indeed/Glassdoor/ZipRecruiter and free feeds.
 - **Jobs dashboard + one-click Auto Apply:** filters on top, match-scored job cards, live Reviewing → Applying → Applied/Failed status, and an Auto Apply button that queues every job on screen.
 - **Accounts:** email/password sign-up and **Sign in with Google**. Every user's data is fully isolated.
 - **Bring your own AI:** pick a provider, paste a key, choose a model, and click **Test connection**. Keys are encrypted at rest (Fernet). One provider layer handles resume parsing, tailoring, cover letters, question answers and match explanations. A built-in **mock** mode works with no key at all.
