@@ -11,6 +11,21 @@ STATUSES = ["DISCOVERED", "QUEUED", "OPTIMIZING_RESUME", "OPTIMIZING_CL", "REVIE
             "APPLIED", "DRY_RUN_DONE", "NEEDS_MANUAL", "SKIPPED", "FAILED", "INTERVIEW", "OFFER", "REJECTED", "WITHDRAWN"]
 
 
+def status_label(st: str) -> str:
+    """User-facing status: Reviewing -> Applying -> Applied | Failed. Never 'Applied' unless actually submitted."""
+    if st in ("QUEUED", "OPTIMIZING_RESUME", "OPTIMIZING_CL", "REVIEW"):
+        return "Reviewing"
+    if st in ("APPROVED", "APPLYING"):
+        return "Applying"
+    if st in ("APPLIED", "INTERVIEW", "OFFER"):
+        return "Applied"
+    if st == "DRY_RUN_DONE":
+        return "Filled (dry run)"
+    if st in ("FAILED", "NEEDS_MANUAL"):
+        return "Failed"
+    return {"DISCOVERED": "New", "SKIPPED": "Skipped", "REJECTED": "Rejected", "WITHDRAWN": "Withdrawn"}.get(st, st.title())
+
+
 def now():
     return dt.datetime.now(dt.timezone.utc)
 
@@ -108,6 +123,7 @@ class Application(Base):
     log: Mapped[list] = mapped_column(JSON, default=list)
     answers_used: Mapped[list] = mapped_column(JSON, default=list)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+    auto_apply: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)  # queued by one-click Auto Apply
     applied_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
@@ -139,7 +155,8 @@ def _migrate():
     from sqlalchemy import inspect, text
     insp = inspect(engine)
     adds = {"settings": [("extra", "JSON")], "applications": [("requirements", "JSON"), ("email_draft", "TEXT"),
-                                                               ("theme", "VARCHAR(30)"), ("notes", "TEXT")]}
+                                                               ("theme", "VARCHAR(30)"), ("notes", "TEXT"),
+                                                               ("auto_apply", "BOOLEAN")]}
     with engine.begin() as c:
         for table, cols in adds.items():
             have = {x["name"] for x in insp.get_columns(table)}

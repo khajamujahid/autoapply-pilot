@@ -74,7 +74,9 @@ def prepare(a, s):
          + (". Check: " + " | ".join(warns) if warns else ""))
     a.status = "OPTIMIZING_CL"; s.commit()
     auto = st.auto_approve_above and m["score"] >= st.auto_approve_above
-    if not st.require_review or auto:
+    if a.auto_apply:
+        a.status = "APPROVED"; note(a, "Auto Apply: documents tailored, moving to submission")
+    elif not st.require_review or auto:
         a.status = "APPROVED"; note(a, "Auto-approved" + (f" (score >= {st.auto_approve_above})" if auto else ""))
     else:
         a.status = "REVIEW"; note(a, "Waiting for your review")
@@ -98,7 +100,7 @@ def apply(a, s):
     st, prof = s.get(Settings, a.user_id), s.get(Profile, a.user_id)
     cls = SUBMITTERS.get(a.ats)
     if not cls:
-        a.status = "NEEDS_MANUAL"; a.error = f"UNSUPPORTED_ATS: no auto-apply for '{a.ats}'. Apply manually: {a.apply_url or a.url}"
+        a.status = "FAILED" if a.auto_apply else "NEEDS_MANUAL"; a.error = f"UNSUPPORTED_ATS: no auto-apply for '{a.ats}'. Apply manually: {a.apply_url or a.url}"
         note(a, a.error); s.commit(); return
     creds = {c.site: (c.username, dec(c.password_enc)) for c in s.scalars(select(Credential).where(Credential.user_id == a.user_id))}
     ai = Provider(AIConfig.from_settings(st))
@@ -133,11 +135,18 @@ def apply(a, s):
 
 
 def _run(fn, a, s):
+    _run_inner(fn, a, s)
+    a = s.get(Application, a.id)
+    if a is not None and a.auto_apply and a.status == "NEEDS_MANUAL":
+        a.status = "FAILED"; s.commit()  # Auto Apply shows an honest Failed (with the reason), never a pending limbo
+
+
+def _run_inner(fn, a, s):
     try:
         fn(a, s)
     except NeedsManual as e:
         a.screenshots = (a.screenshots or []) + e.shots
-        a.status, a.error, a.applied_at = "NEEDS_MANUAL", f"{e.code}: {e} → {a.apply_url or a.url}", now()
+        a.status, a.error = "NEEDS_MANUAL", f"{e.code}: {e} → {a.apply_url or a.url}"
         note(a, a.error); s.commit()
     except SubmitError as e:
         a.screenshots = (a.screenshots or []) + e.shots

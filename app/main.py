@@ -18,7 +18,7 @@ from .auth import current_user, LoginRequired, pwd, oauth, valid_email, create_u
 from .config import SECRET_KEY, DATA_DIR, RUN_WORKER_IN_PROCESS, ALLOW_SIGNUP, APP_NAME, HOSTED, BASE_URL, LOG_LEVEL, LOG_FORMAT, MAX_UPLOAD_MB
 from .hardening import setup_logging, RequestMiddleware, LoginThrottle
 from .crypto import enc, dec
-from .db import (SessionLocal, init_db, User, Settings, Profile, Credential, SavedSearch, Application, STATUSES,
+from .db import (SessionLocal, init_db, User, Settings, Profile, Credential, SavedSearch, Application, STATUSES, status_label,
                  ensure_user_rows)
 from .discovery import search as discover, save_jobs, run_saved_search
 from .profile import FIELDS, SIMPLE_FIELDS, ANSWER_FIELDS, QUESTION_SECTIONS, extract_text
@@ -33,7 +33,7 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, same_site="lax", ma
 app.add_middleware(RequestMiddleware, base_url=BASE_URL)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 tpl = Jinja2Templates(directory=HERE / "templates")
-tpl.env.globals.update(HOSTED=HOSTED, APP_NAME=APP_NAME, STATUSES=STATUSES, google_enabled=oauth is not None)
+tpl.env.globals.update(status_label=status_label, HOSTED=HOSTED, APP_NAME=APP_NAME, STATUSES=STATUSES, google_enabled=oauth is not None)
 init_db()
 if RUN_WORKER_IN_PROCESS:
     from .worker import start_background
@@ -69,7 +69,7 @@ def hosted_followup(s, a):
         _run(prepare, a, s); a = s.get(Application, a.id)
     if a.status == "APPROVED":
         from .worker import note
-        a.status, a.error = "NEEDS_MANUAL", HOSTED_NOTE; note(a, HOSTED_NOTE); s.commit()
+        a.status, a.error = "FAILED", HOSTED_NOTE; note(a, HOSTED_NOTE); s.commit()
 
 
 def own_app(s, user, app_id) -> Application:
@@ -155,7 +155,125 @@ async def google_cb(request: Request):
 
 
 # ---------------------------------------------------------------- dashboard / tracker
+AUTO_PENDING = ("QUEUED", "OPTIMIZING_RESUME", "OPTIMIZING_CL", "REVIEW", "APPROVED", "APPLYING")
+VIEWS = {"recommended": ("DISCOVERED",), "reviewing": ("QUEUED", "OPTIMIZING_RESUME", "OPTIMIZING_CL", "REVIEW"),
+         "applying": ("APPROVED", "APPLYING"), "applied": ("APPLIED", "INTERVIEW", "OFFER"),
+         "failed": ("FAILED", "NEEDS_MANUAL", "DRY_RUN_DONE")}
+
+
 @app.get("/", response_class=HTMLResponse)
+def home(request: Request, q: str = "", loc: str = "", remote: bool = False, min_score: int = 0, view: str = "recommended",
+         ats: str = "", sort: str = "match"):
+    """Main post-login view: filters on top, job cards, pipeline stats and one-click Auto Apply."""
+    user = current_user(request)
+    view = view if view in VIEWS else "recommended"
+    with SessionLocal() as s:
+        counts = dict(s.execute(select(Application.status, func.count()).where(Application.user_id == user.id)
+                                .group_by(Application.status)).all())
+        qy = select(Application).where(Application.user_id == user.id, Application.status.in_(VIEWS[view]))
+        if q:
+            like = f"%{q}%"; qy = qy.where(or_(Application.title.ilike(like), Application.company.ilike(like)))
+        if loc:
+            qy = qy.where(Application.location.ilike(f"%{loc}%"))
+        if remote:
+            qy = qy.where(or_(Application.location.ilike("%remote%"), Application.title.ilike("%remote%")))
+        if min_score:
+            qy = qy.where(Application.match_score >= min_score)
+        if ats == "auto":
+            qy = qy.where(Application.ats.in_(("greenhouse", "lever", "ashby")))
+        order = Application.updated_at.desc() if sort == "new" else Application.match_score.desc()
+        jobs = list(s.scalars(qy.order_by(order).limit(60)))
+        st = s.get(Settings, user.id); prof = s.get(Profile, user.id)
+    c = lambda ks: sum(counts.get(k, 0) for k in ks)
+    stats = {k: c(v) for k, v in VIEWS.items()}
+    setup = {"resume": bool(prof.resume_text), "ai": st.ai_provider != "mock"}
+    return render(request, "home.html", user, jobs=jobs, stats=stats, view=view, f=dict(q=q, loc=loc, remote=remote,
+                  min_score=min_score, ats=ats, sort=sort), st=st, setup=setup, label=status_label,
+                  ai_label=PROVIDERS.get(st.ai_provider, {}).get("label", st.ai_provider))
+
+
+def _queue_state(s, user_id):
+    rows = s.execute(select(Application.id, Application.status, Application.error).where(
+        Application.user_id == user_id, Application.auto_apply.is_(True))).all()
+    return {"jobs": {r[0]: {"status": status_label(r[1]), "raw": r[1], "error": (r[2] or "")[:200]} for r in rows},
+            "pending": sum(1 for r in rows if r[1] in AUTO_PENDING)}
+
+
+@app.post("/api/autoapply")
+async def api_autoapply(request: Request):
+    """Queue every job currently shown. Each one is tailored into the ATS resume, answered and submitted in order."""
+    user = current_user(request)
+    body = await request.json()
+    ids = [int(i) for i in (body.get("ids") or [])][:100]
+    n = 0
+    with SessionLocal() as s:
+        prof = s.get(Profile, user.id)
+        if not prof.resume_text:
+            return JSONResponse({"error": "Upload your resume on the Profile page first, then click Auto Apply."}, 400)
+        for a in s.scalars(select(Application).where(Application.user_id == user.id, Application.id.in_(ids))):
+            if a.status in ("DISCOVERED", "SKIPPED", "FAILED", "NEEDS_MANUAL", "DRY_RUN_DONE", "REVIEW"):
+                a.status, a.error, a.auto_apply = ("APPROVED" if a.status == "REVIEW" and a.tailored_resume else "QUEUED"), "", True
+                n += 1
+        s.commit()
+        return {"queued": n, **_queue_state(s, user.id)}
+
+
+def _claim_one(s, user_id, frm, to):
+    from sqlalchemy import update
+    a = s.scalars(select(Application).where(Application.user_id == user_id, Application.auto_apply.is_(True),
+                                            Application.status == frm).order_by(Application.id).limit(1)).first()
+    if a and s.execute(update(Application).where(Application.id == a.id, Application.status == frm)
+                       .values(status=to)).rowcount:
+        s.commit(); s.refresh(a); return a
+    return None
+
+
+@app.post("/api/queue/step")
+def api_queue_step(request: Request):
+    """Advance this user's Auto Apply queue by one job (the browser calls this in a loop; the worker does the same
+    in the background on self-hosted installs). Hosted demo: tailoring runs, browser submission is reported honestly."""
+    user = current_user(request)
+    from .worker import _run, prepare, apply as submit, note
+    with SessionLocal() as s:
+        a = _claim_one(s, user.id, "QUEUED", "OPTIMIZING_RESUME")
+        if a:
+            _run(prepare, a, s)
+        else:
+            a = _claim_one(s, user.id, "APPROVED", "APPLYING")
+            if a:
+                if HOSTED:
+                    a.status = "FAILED"
+                    a.error = ("Not submitted: the hosted demo has no browser to fill forms. Your tailored ATS resume and "
+                               "cover letter are ready on this job; self-host ApplyPilot to submit automatically, or apply via the link.")
+                    note(a, a.error); s.commit()
+                else:
+                    _run(submit, a, s)
+        return _queue_state(s, user.id)
+
+
+@app.get("/api/queue")
+def api_queue(request: Request):
+    user = current_user(request)
+    with SessionLocal() as s:
+        return _queue_state(s, user.id)
+
+
+@app.get("/profile/ats.pdf")
+def profile_ats_pdf(request: Request):
+    """The uploaded resume converted into the standard ATS layout (before any per-job tailoring)."""
+    user = current_user(request)
+    from .docs_engine import resume_builtin
+    from .pdf import text_to_pdf
+    with SessionLocal() as s:
+        prof = s.get(Profile, user.id)
+        if not prof.resume_text:
+            raise HTTPException(404, "Upload a resume first")
+        txt = resume_builtin(prof, (prof.data or {}).get("current_title", ""), "", [])
+    d = DATA_DIR / "artifacts" / f"u{user.id}"; d.mkdir(parents=True, exist_ok=True)
+    return FileResponse(text_to_pdf(txt, str(d / "resume_ats.pdf"), "ats"), filename="Resume_ATS.pdf", media_type="application/pdf")
+
+
+@app.get("/tracker", response_class=HTMLResponse)
 def dashboard(request: Request, status: str = "", q: str = "", ats: str = "", view: str = "board"):
     user = current_user(request)
     with SessionLocal() as s:
@@ -449,9 +567,10 @@ def jobs_search(request: Request, location: str = Form(""), remote_only: bool = 
     request.session["last_discovery"] = {"roles": meta["roles"], "method": meta["profile"]["method"],
                                          "raw": meta["raw_counts"], "kept": meta["kept_counts"],
                                          "where": meta["location"], "days": days}
+    back = request.headers.get("referer") or ""
     flash(request, f"Searched {len(meta['raw_counts'])} sources for {', '.join(meta['roles'])}: {len(jobs)} matching jobs, {n} new."
           + (" Notes: " + "; ".join(errors[:2]) if errors else ""), "err" if errors and not jobs else "ok")
-    return RedirectResponse("/jobs", 303)
+    return RedirectResponse("/" if back and __import__("urllib.parse").parse.urlparse(back).path == "/" else "/jobs", 303)
 
 
 @app.post("/jobs/saved/{ss_id}/{action}")

@@ -1,6 +1,6 @@
 """One provider abstraction for every AI task (Bring Your Own AI).
 
-Providers: xai (Grok), gemini, anthropic, openai, custom (any OpenAI-compatible base URL), mock (offline, deterministic).
+Providers: xai (Grok), gemini, anthropic, openai, deepseek, mistral, groq, together, openrouter, perplexity, cohere, ollama, lmstudio, custom (any OpenAI-compatible base URL), mock (offline, deterministic).
 """
 import json
 import re
@@ -12,10 +12,17 @@ PROVIDERS = {
     "xai": {"label": "Grok (xAI)", "base_url": "https://api.x.ai/v1", "model": "grok-4"},
     "gemini": {"label": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-2.5-flash"},
     "anthropic": {"label": "Anthropic Claude", "base_url": "https://api.anthropic.com/v1", "model": "claude-sonnet-4-5"},
-    "openai": {"label": "OpenAI", "base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+    "openai": {"label": "OpenAI (ChatGPT)", "base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+    "deepseek": {"label": "DeepSeek", "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+    "mistral": {"label": "Mistral AI", "base_url": "https://api.mistral.ai/v1", "model": "mistral-small-latest"},
+    "groq": {"label": "Groq (fast Llama)", "base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
+    "together": {"label": "Together AI", "base_url": "https://api.together.xyz/v1", "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"},
+    "openrouter": {"label": "OpenRouter (any model)", "base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
+    "perplexity": {"label": "Perplexity", "base_url": "https://api.perplexity.ai", "model": "sonar"},
+    "cohere": {"label": "Cohere", "base_url": "https://api.cohere.ai/compatibility/v1", "model": "command-r-plus"},
     "ollama": {"label": "Ollama (local, private, no key)", "base_url": "http://localhost:11434/v1", "model": "qwen2.5:7b"},
     "lmstudio": {"label": "LM Studio (local, no key)", "base_url": "http://localhost:1234/v1", "model": "local-model"},
-    "custom": {"label": "Custom (OpenAI-compatible)", "base_url": "", "model": ""},
+    "custom": {"label": "ChatGPT-compatible / custom endpoint", "base_url": "", "model": ""},
     "mock": {"label": "Mock (offline, no key)", "base_url": "", "model": "mock"},
 }
 
