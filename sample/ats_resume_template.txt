@@ -1,0 +1,26 @@
+Alex Morgan
+Senior Software Engineer
+Austin, TX | (555) 010-0000 | alex.morgan@example.com | linkedin.com/in/alex-morgan-example
+
+PROFESSIONAL SUMMARY
+Software engineer with 6+ years building **Python backend APIs**, **data pipelines** and **cloud services**. Delivers reliable, well-tested systems and works closely with product teams to ship measurable results.
+
+TECHNICAL SKILLS
+Programming & Backend APIs: Python, FastAPI, REST, SQL
+Data Engineering & Lakehouse: Spark, Airflow, dbt
+Databases & Cloud: PostgreSQL, Redis, AWS
+Cloud/DevOps/MLOps: Docker, Kubernetes, GitHub Actions
+
+PROFESSIONAL EXPERIENCE
+Example Corp | Austin, TX | Jan 2022 - Present
+Senior Software Engineer
+- Built **FastAPI** services handling 2M requests/day with 99.9% uptime.
+- Cut pipeline runtime 40% by moving batch jobs to **Spark** on AWS.
+
+Sample Labs | Dallas, TX | Jun 2019 - Dec 2021
+Software Engineer
+- Designed **PostgreSQL** schemas and REST endpoints for a billing product.
+
+EDUCATION
+State University | Austin, TX | 2015 - 2019
+B.S., Computer Science
