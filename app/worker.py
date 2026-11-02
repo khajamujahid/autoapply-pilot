@@ -193,5 +193,7 @@ def start_background():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from .hardening import setup_logging
+    from .config import LOG_LEVEL, LOG_FORMAT
+    setup_logging(LOG_LEVEL, LOG_FORMAT)
     init_db(); log.info("worker started"); loop()

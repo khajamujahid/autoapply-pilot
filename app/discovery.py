@@ -245,7 +245,8 @@ def _loc_ok(job, location, remote_only):
     if not location or job["source"] in JOBSPY_SITES + ["adzuna", "usajobs", "jsearch", "arbeitsagentur"]:
         return True  # these sources already filtered by location server-side
     parts = [p.strip().lower() for p in re.split(r"[,/]", location) if p.strip()]
-    return (job["source"] == "remotive" and "remote" in L.lower()) or any(p in L.lower() for p in parts)
+    return (job["source"] == "remotive" and "remote" in L.lower()) or any(
+        re.search(r"(?<![a-z])" + re.escape(p) + r"(?![a-z])", L.lower()) for p in parts)
 
 
 def search(user_id, location="", remote_only=False, days=7, companies="", sources=None, roles_override=None, per_site=30):

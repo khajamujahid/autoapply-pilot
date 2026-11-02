@@ -74,7 +74,7 @@ def builtin_profile(prof):
     found = _find_titles(cur) + [t for t in _find_titles(str(d.get("summary", "")) + " " + str(d.get("experience", "")) + " " + (prof.resume_text or "")) if " " in t]
     roles = []
     for r in override + ([cur] if cur and len(cur) < 60 else []) + found:
-        r = re.sub(r"\b(sr\.?|senior|jr\.?|junior|lead|principal|staff)\b", "", r, flags=re.I).strip(" ,-/").lower()
+        r = re.sub(r"\b(sr\.?|senior|jr\.?|junior|lead|principal)\b", "", r, flags=re.I).strip(" ,-/").lower()
         if r and r not in roles:
             roles.append(r)
     skills = [s.strip() for s in str(d.get("skills", "")).split(",") if s.strip()]

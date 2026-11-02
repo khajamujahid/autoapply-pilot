@@ -8,7 +8,7 @@ import re
 from sqlalchemy import select
 from .ai import AIError
 from .db import DocVersion, ChatMsg, now
-from .profile import profile_text, full_name
+from .profile import full_name
 
 LANGS = {"en": "English", "es": "Spanish", "de": "German", "fr": "French", "pt": "Portuguese", "it": "Italian",
          "nl": "Dutch", "hi": "Hindi", "ar": "Arabic", "ur": "Urdu", "zh": "Chinese", "ja": "Japanese"}
@@ -24,6 +24,22 @@ work working knowledge understanding familiarity proficiency proficient skills s
 must should can may would within across least minimum one two three four five more new also any all their they them""".split())
 REQ_HDR = re.compile(r"(requirements|qualifications|what you.?ll (need|bring)|what we.?re looking for|you have|you.?ll have|"
                      r"must.have|minimum|preferred|basic qualifications|who you are|skills|about you|ideal candidate)", re.I)
+
+
+def _facts(prof):
+    """Everything the user has told us: structured profile fields + resume text + parsed experience + languages."""
+    from .profile import SIMPLE_FIELDS
+    d = prof.data or {}
+    parts = [f"{k}: {d.get(k)}" for k in SIMPLE_FIELDS if d.get(k)]
+    for e in d.get("experience") or []:
+        if isinstance(e, dict):
+            parts.append(" ".join(str(v) for v in e.values()))
+    for e in d.get("education") or []:
+        if isinstance(e, dict):
+            parts.append(" ".join(str(v) for v in e.values()))
+    parts.append(prof.resume_text or "")
+    parts.append(str((prof.answers or {}).get("languages", "")))
+    return "\n".join(parts)
 
 
 def _words(t):
@@ -66,7 +82,7 @@ def extract_requirements_builtin(jd):
 
 
 def cover_builtin(prof, reqs):
-    ptxt = (profile_text(prof) + "\n" + (prof.resume_text or "")).lower()
+    ptxt = _facts(prof).lower()
     plines = [l.strip() for l in (prof.resume_text or "").splitlines() if len(l.strip()) > 20]
     skills = _skills(prof)
     res = []
@@ -106,7 +122,7 @@ def match_requirements(prof, ai, title, jd):
                 "For each, decide if the PROFILE covers it. Evidence must quote or closely paraphrase the profile; if the profile "
                 "does not show it, covered=false and evidence explains what is missing. Be strict and honest.",
                 'Return {"requirements":[{"text":"...","covered":true,"evidence":"..."}]}\n\nJOB: ' + title + "\n" + jd[:7000]
-                + "\n\nPROFILE:\n" + (profile_text(prof) + "\n" + (prof.resume_text or ""))[:7000], 1800)
+                + "\n\nPROFILE:\n" + _facts(prof)[:7000], 1800)
             reqs = [{"text": str(r.get("text", ""))[:260], "covered": bool(r.get("covered")), "evidence": str(r.get("evidence", ""))[:300]}
                     for r in out.get("requirements", []) if r.get("text")]
             if reqs:
@@ -202,7 +218,7 @@ def _ai_doc(ai, kind, prof, title, company, jd, reqs, tone, lang):
     gaps = "\n".join("- " + r["text"] for r in reqs if not r["covered"]) or "(none)"
     cov = "\n".join(f"- {r['text']} <= {r['evidence']}" for r in reqs if r["covered"]) or "(none)"
     ctx = (f"JOB: {title} at {company}\n{jd[:6000]}\n\nCOVERED REQUIREMENTS:\n{cov}\n\nGAPS (do not claim):\n{gaps}\n\n"
-           f"PROFILE:\n{(profile_text(prof) + chr(10) + (prof.resume_text or ''))[:8000]}")
+           f"PROFILE:\n{_facts(prof)[:8000]}")
     lang_s = LANGS.get(lang, "English")
     if kind == "resume":
         return ai.complete(f"Write a tailored, ATS-friendly resume in {lang_s} for this job. Plain text. First line = full name, "
@@ -243,7 +259,7 @@ def generate(s, a, prof, ai, kinds=("resume", "cover", "email"), tone="professio
 def fact_check(prof, text, a):
     """Flag terms a draft uses that the profile doesn't support: words taken from the posting but absent from the
     profile (the classic way drafts 'invent' experience), and tech-shaped tokens (digits / inner capitals) not in the profile."""
-    base = (profile_text(prof) + " " + (prof.resume_text or "") + " " + (a.company or "") + " " + (a.title or "")).lower()
+    base = (_facts(prof) + " " + (a.company or "") + " " + (a.title or "")).lower()
     jd = (a.job_description or "").lower()
     sus = set()
     for t in set(re.findall(r"[A-Za-z][A-Za-z0-9+#./-]{1,}", text or "")):
@@ -290,7 +306,7 @@ def restore(s, a, kind, vid):
 
 def _mock_refine(prof, text, msg):
     m = msg.lower().strip()
-    base = (profile_text(prof) + " " + (prof.resume_text or "")).lower()
+    base = (_facts(prof)).lower()
     if re.search(r"\b(shorter|shorten|concise|trim|one page)\b", m):
         lines, out, seen_b = text.splitlines(), [], 0
         for l in lines:
@@ -340,7 +356,7 @@ def refine(s, a, prof, ai, kind, message, lang="en"):
                               f"only (no commentary), in {LANGS.get(lang, 'English')}. If the request asks to add something not in "
                               "the profile, do not add it. " + TRUTH,
                               f"REQUEST: {message}\n\nGAPS (never claim):\n{gaps}\n\nPROFILE:\n"
-                              f"{(profile_text(prof) + chr(10) + (prof.resume_text or ''))[:6000]}\n\nDOCUMENT:\n{cur}", 2200)
+                              f"{_facts(prof)[:6000]}\n\nDOCUMENT:\n{cur}", 2200)
             reply = "Done. " + ("; ".join(fact_check(prof, new, a)) or "")
         except AIError as e:
             new, reply = cur, f"AI error: {e}"
