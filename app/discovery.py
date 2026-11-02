@@ -1,7 +1,8 @@
 """Job discovery for ANY profession (v1.1). Sources:
 - LinkedIn, Indeed, Glassdoor, ZipRecruiter, Google Jobs via python-jobspy (MIT)
 - The Muse public API, Adzuna + USAJobs (free keys, optional, via env)
-- Greenhouse / Lever / Ashby public job-board APIs for companies the user lists
+- Greenhouse / Lever / Ashby public job-board APIs: ~10,000 recently active company career sites (career_sites.py)
+  plus any companies the user lists
 - Remotive public API (remote jobs)   https://remotive.com/api/remote-jobs
 - Arbeitnow public job board API      https://www.arbeitnow.com/api/job-board-api
 """
@@ -58,7 +59,7 @@ def board_jobs(c, ats, slug):
     return jobs
 
 
-ALL_SOURCES = ["linkedin", "indeed", "glassdoor", "zip_recruiter", "google", "remotive", "arbeitnow", "themuse",
+ALL_SOURCES = ["career_sites", "linkedin", "indeed", "glassdoor", "zip_recruiter", "google", "remotive", "arbeitnow", "themuse",
                "adzuna", "usajobs", "jsearch", "arbeitsagentur", "boards"]
 JOBSPY_SITES = ["linkedin", "indeed", "glassdoor", "zip_recruiter", "google"]
 
@@ -249,7 +250,8 @@ def _loc_ok(job, location, remote_only):
         re.search(r"(?<![a-z])" + re.escape(p) + r"(?![a-z])", L.lower()) for p in parts)
 
 
-def search(user_id, location="", remote_only=False, days=7, companies="", sources=None, roles_override=None, per_site=30):
+def search(user_id, location="", remote_only=False, days=7, companies="", sources=None, roles_override=None, per_site=30,
+           boards_offset=0):
     """Profile-driven discovery: derive roles from the resume, query every source, dedupe, gate by role, rank by fit.
     Returns (jobs, errors, meta)."""
     import concurrent.futures as cf
@@ -266,6 +268,7 @@ def search(user_id, location="", remote_only=False, days=7, companies="", source
         keys = dict((st.extra or {}) if st else {})
     roles = roles_override or sp["roles"] or ["software engineer"]
     found, errors, counts = [], [], {}
+    cs_meta = {}
 
     def run_jobspy(site, role):
         return site, jobspy_site(site, role, location, remote_only, days, per_site)
@@ -279,6 +282,19 @@ def search(user_id, location="", remote_only=False, days=7, companies="", source
             for role in (roles[:3] if name in ("remotive", "adzuna", "usajobs", "jsearch", "arbeitsagentur") else roles[:1]):
                 tasks.append(ex.submit(lambda n=name, r=role: (n, API_SOURCES[n](c, r, location=location, days=days, keys=keys,
                                                                                     remote_only=remote_only))))
+        if "career_sites" in srcs:
+            from . import career_sites as cs
+            from .config import CAREER_SITES_BUDGET
+            cutoff_d = (dt.date.today() - dt.timedelta(days=days)) if days else None
+
+            def cs_match(j):
+                return (title_fit(j["title"], roles) >= 0.6 and _loc_ok(dict(j, source="career_sites"), location, remote_only)
+                        and not (cutoff_d and j.get("posted") and j["posted"] < cutoff_d))
+
+            def run_cs():
+                js, m = cs.scan(cs_match, offset=boards_offset, budget_s=CAREER_SITES_BUDGET)
+                cs_meta.update(m); return "career_sites", js
+            tasks.append(ex.submit(run_cs))
         if "boards" in srcs and companies:
             for ats, slug in parse_companies(companies):
                 tasks.append(ex.submit(lambda a=ats, sl=slug: ("boards", board_jobs(c, a, sl))))
@@ -319,7 +335,7 @@ def search(user_id, location="", remote_only=False, days=7, companies="", source
             kept[j["source"]] = kept.get(j["source"], 0) + 1
             out.append(j)
     out.sort(key=lambda j: -j["match_score"])
-    meta = {"profile": sp, "roles": roles, "raw_counts": raw, "kept_counts": kept, "location": location or ("Remote" if remote_only else "Anywhere (US)"),
+    meta = {"career_sites": cs_meta, "profile": sp, "roles": roles, "raw_counts": raw, "kept_counts": kept, "location": location or ("Remote" if remote_only else "Anywhere (US)"),
             "days": days}
     return out, errors, meta
 

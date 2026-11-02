@@ -58,3 +58,6 @@ APP_NAME = "ApplyPilot"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FORMAT = os.getenv("LOG_FORMAT", "json")  # json | text
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
+# Company career-site scan (Greenhouse/Lever/Ashby boards): seconds per search pass. Hosted functions stop at ~60s,
+# so a pass covers part of the list and "Scan next batch" continues; self-hosted can scan everything in one pass.
+CAREER_SITES_BUDGET = float(os.getenv("CAREER_SITES_BUDGET", "32" if HOSTED else "240"))
