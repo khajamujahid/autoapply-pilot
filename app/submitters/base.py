@@ -336,6 +336,12 @@ class BaseSubmitter:
                 return self._result(True)
             if re.search(r"required|can't be blank|is invalid|please (fill|complete)", body):
                 raise NeedsManual("VALIDATION", "The form reported missing/invalid fields after submit.")
+            if re.search(r"verification code|security code|confirm you.re a human", body):
+                raise NeedsManual("EMAIL_VERIFICATION", "The site emailed a verification code to confirm you're human. "
+                                  "Open the link, enter the code from your inbox and submit.")
+            if any(page.locator(s).count() and page.locator(s).first.is_visible() for s in self.submit_selectors[:3]):
+                raise NeedsManual("NOT_CONFIRMED", "Clicked submit but the form is still on screen with no confirmation "
+                                  "(likely an invisible CAPTCHA or a silent validation error). Not counted as Applied.")
             return self._result(True, confirmed=False)
         except SubmitError as e:
             try: self.shot(page, "error")
