@@ -11,7 +11,8 @@ class WorkdaySubmitter(BaseSubmitter):
         tenant = urlparse(self.app.url).netloc.split(".")[0]
         cred = self.creds.get(f"workday:{tenant}") or self.creds.get("workday")
         if not cred:
-            raise SubmitError("WORKDAY_PASSWORD_REQUIRED", f"Add a Workday credential for 'workday:{tenant}' in Profile → Credentials")
+            raise NeedsManual("ACCOUNT_REQUIRED", f"Workday ({tenant}) needs a candidate account. Create it once at "
+                              f"{urlparse(self.app.url).netloc}, then save it in Profile → Credentials as 'workday:{tenant}' and click Retry.")
         page.locator("a[data-automation-id='adventureButton'], button:has-text('Apply')").first.click(timeout=15000)
         page.wait_for_timeout(2500)
         manual = page.locator("a[data-automation-id='applyManually'], button:has-text('Apply Manually')")

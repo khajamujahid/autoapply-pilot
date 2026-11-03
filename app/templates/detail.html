@@ -4,7 +4,7 @@
 <div class="row" style="justify-content:space-between;margin-top:8px"><div><h1>{{ a.title or 'Job' }}</h1>
 <p class="sub">{{ a.company }} · {{ a.location }} · {{ a.ats }}{% if a.url.startswith('http') %} · <a href="{{ a.apply_url or a.url }}" target="_blank">open posting ↗</a>{% endif %}</p></div>
 <span class="pill s-{{ a.status }}" style="font-size:13px">{{ a.status.replace('_',' ') }}</span></div>
-{% if a.error %}<div class="flash err">{{ a.error }}{% if a.status=='NEEDS_MANUAL' %} — <a href="{{ a.apply_url or a.url }}" target="_blank" style="color:#fff;text-decoration:underline">finish it here ↗</a>{% endif %}</div>{% endif %}
+{% if a.error %}<div class="flash err">{{ a.error }}{% if a.status=='NEEDS_MANUAL' %} — <a href="{{ a.apply_url or a.url }}" target="_blank" style="color:#fff;text-decoration:underline">finish it here ↗</a>{% endif %}{% if a.status in ('NEEDS_MANUAL','FAILED') %} <form method="post" action="/applications/{{ a.id }}/prefill" style="display:inline"><button class="btn sec">Open &amp; prefill</button></form>{% endif %}</div>{% endif %}
 <div class="row" style="gap:6px;margin:6px 0 14px">{% for t,l in [('match','🎯 Match'),('docs','📝 Documents'),('apply','🚀 Apply & log')] %}<a class="btn {{ '' if tab==t else 'sec' }} sm" href="?tab={{ t }}">{{ l }}</a>{% endfor %}
 <form method="post" action="/applications/{{ a.id }}/draft" class="row" style="margin-left:auto;gap:6px">
 <select name="tone" style="width:auto">{% for t in TONES %}<option {{ 'selected' if t==tone }}>{{ t }}</option>{% endfor %}</select>

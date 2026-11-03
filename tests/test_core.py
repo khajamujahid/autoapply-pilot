@@ -427,7 +427,7 @@ def test_auto_apply_flow_never_fakes_applied(client):
     st = _drain(client)
     assert st["pending"] == 0
     for j in st["jobs"].values():
-        assert j["status"] == "Failed" and "UNSUPPORTED_ATS" in j["error"]   # unknown ATS: honest failure, never Applied
+        assert j["status"] != "Applied" and j["error"]   # unreachable site: honest reason, never Applied
     from app.db import SessionLocal, Application
     with SessionLocal() as s:
         for i in ids:

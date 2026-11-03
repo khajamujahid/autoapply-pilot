@@ -274,7 +274,13 @@ def search(user_id, location="", remote_only=False, days=7, companies="", source
         return site, jobspy_site(site, role, location, remote_only, days, per_site)
 
     tasks = []
-    with cf.ThreadPoolExecutor(8) as ex, httpx.Client(headers=UA, timeout=30, follow_redirects=True) as c:
+    import os as _os
+    budget = float(_os.getenv("DISCOVERY_BUDGET", "45"))
+    if "career_sites" in srcs:
+        from .config import CAREER_SITES_BUDGET as _cb
+        budget = max(budget, _cb + 5)
+    ex = cf.ThreadPoolExecutor(24)
+    with httpx.Client(headers=UA, timeout=20, follow_redirects=True) as c:
         for site in [x for x in srcs if x in JOBSPY_SITES]:
             for role in roles[:3]:
                 tasks.append(ex.submit(run_jobspy, site, role))
@@ -298,7 +304,14 @@ def search(user_id, location="", remote_only=False, days=7, companies="", source
         if "boards" in srcs and companies:
             for ats, slug in parse_companies(companies):
                 tasks.append(ex.submit(lambda a=ats, sl=slug: ("boards", board_jobs(c, a, sl))))
-        for f in cf.as_completed(tasks):
+        done = []
+        try:
+            for f in cf.as_completed(tasks, timeout=budget):
+                done.append(f)
+        except cf.TimeoutError:
+            errors.append(f"{sum(1 for f in tasks if not f.done())} slow source(s) skipped after {int(budget)}s")
+        ex.shutdown(wait=False, cancel_futures=True)
+        for f in done:
             try:
                 name, js = f.result()
             except Exception as e:

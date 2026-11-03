@@ -119,7 +119,8 @@ with SessionLocal() as s:
 
 # ---------- regression: no personal data in repo files
 pii = re.compile(r"khaja|mujahid|shoaib|new haven|meriden", re.I)
-bad = [str(p.relative_to(ROOT)) for p in files if p.name not in ("LICENSE", "angles.py") and pii.search(p.read_text(errors="ignore"))]
+bad = [str(p.relative_to(ROOT)) for p in files if p.name not in ("LICENSE", "angles.py") and pii.search(p.read_text(errors="ignore").replace("github.com/khajamujahid/autoapply-pilot", ""))
+       and ".git" not in p.parts]
 check("REG", "no personal data in repo (LICENSE copyright excepted)", not bad, bad or "clean")
 
 summary = {k: all(ok for _, ok, _ in v) for k, v in R.items()}

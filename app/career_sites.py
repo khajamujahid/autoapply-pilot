@@ -94,7 +94,7 @@ def _fetch(c, ats, token, name):
     return out
 
 
-def scan(match, offset=0, limit=None, budget_s=40.0, workers=48, timeout=8.0):
+def scan(match, offset=0, limit=None, budget_s=40.0, workers=int(__import__("os").getenv("CAREER_SITES_WORKERS", "48")), timeout=8.0):
     """Query boards[offset:offset+limit] in parallel until the time budget runs out.
     match(job) -> bool filters by role/location/date. Returns (jobs, meta)."""
     allb = boards()

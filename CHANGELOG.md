@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.0
+- **Universal form filler**: every ATS without a dedicated submitter (iCIMS, SmartRecruiters, Taleo, SuccessFactors, UltiPro/UKG, Avature, ContactHR, Workable, BambooHR, JazzHR, Paylocity, company career sites ...) is now attempted instead of failing as "unsupported". It clicks Apply, follows new tabs, iframes and redirects to the real ATS, fills contact fields, Application Questions and AI answers, uploads the tailored resume and walks multi-step wizards. If the Apply button leads to Greenhouse/Lever/Ashby/Workday it switches to that submitter.
+- Short links (grnh.se, tracking links) are resolved; LinkedIn/Glassdoor/Indeed pages are searched for the employer's apply link.
+- Every non-submission has an actionable reason code: ACCOUNT_REQUIRED, CAPTCHA, JOB_CLOSED, AGGREGATOR_EASY_APPLY, REQUIRED_UNANSWERED, NO_FORM_FOUND, SITE_UNREACHABLE, TIMEOUT, VALIDATION. Never a fake Applied, never a CAPTCHA bypass.
+- **Open & prefill** button (self-hosted): opens a visible browser on the real form, fully filled, for you to review/solve CAPTCHA/submit.
+- **Failure monitor** at /monitor: counts by status, reason and ATS host plus the latest 50 failures.
+- Fix: "Years required" parsing (ignores "70 years of history", ages, money; caps at 20; prefers numbers next to "experience").
+- Match is recomputed after tailoring (shown in the log as before → after). Tailoring still never invents employers, titles, dates or degrees.
+- Speed: parallel apply workers (APPLY_WORKERS, default 3), one reused Chromium per worker, images/fonts blocked on forms, discovery capped by DISCOVERY_BUDGET (default 45s) with 24 parallel fetches.
+
 ## 1.5.0
 - Find new jobs now also scans **10,448 recently active company career sites** (Greenhouse 4,565, Ashby 2,449, Workable 1,586, Lever 1,247, Recruitee 601). Each board answered its public API and had at least one posting in the last 120 days when the list was built (app/data/career_boards.json).
 - Parallel scan (64 connections, 8s per-board timeout, time budget, 30-min cache), filtered by your resume's roles, location and date; matches are ranked against your resume.

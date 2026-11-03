@@ -810,6 +810,32 @@ def arch(request: Request):
     return render(request, "architecture.html", user)
 
 
+@app.get("/monitor", response_class=HTMLResponse)
+def monitor(request: Request):
+    """Failure monitor: why applications did not submit, by reason and by ATS host."""
+    user = current_user(request)
+    from .worker import failure_stats
+    with SessionLocal() as s:
+        st = failure_stats(s, user.id)
+        recent = s.scalars(select(Application).where(Application.user_id == user.id,
+                           Application.status.in_(["FAILED", "NEEDS_MANUAL"])).order_by(Application.updated_at.desc()).limit(50)).all()
+        return render(request, "monitor.html", user, stats=st, recent=recent, hosted=HOSTED)
+
+
+@app.post("/applications/{app_id}/prefill")
+def app_prefill(request: Request, app_id: int):
+    user = current_user(request)
+    with SessionLocal() as s:
+        a = own_app(s, user, app_id)
+        url = a.apply_url or a.url
+    if HOSTED:
+        return RedirectResponse(url, 303)
+    from .worker import prefill_visible
+    prefill_visible(app_id)
+    flash(request, "Opening a browser window on your computer with the form pre-filled. Review, solve any CAPTCHA, and click Submit yourself.")
+    return RedirectResponse(f"/applications/{app_id}", 303)
+
+
 @app.get("/healthz")
 def health():
     from sqlalchemy import text

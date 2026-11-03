@@ -15,6 +15,7 @@ ApplyPilot finds jobs, scores how well each one matches you, and tailors your re
 The repo includes `index.py` and `vercel.json`. Import it in Vercel, add a Postgres database (e.g. Neon) and set `DATABASE_URL`, `SECRET_KEY`, `ENCRYPTION_KEY` (a Fernet key), `BASE_URL` and `HOSTED=1`. On Vercel, files go to `/tmp`, the background worker is off, and drafting runs inline; auto-apply is disabled.
 
 ## Features
+- **Applies on any ATS (v1.6):** dedicated submitters for Greenhouse, Lever, Ashby and Workday, plus a **universal form filler** for everything else (iCIMS, SmartRecruiters, Taleo, SuccessFactors, UltiPro/UKG, Avature, ContactHR, Workable, BambooHR, JazzHR, company career sites). Short links and LinkedIn/Glassdoor/Indeed pages are resolved to the employer's form. Anything that can't be submitted gets a clear reason (account needed, CAPTCHA, job closed, Easy Apply only...) and an **Open & prefill** button; see the **Monitor** page for counts by reason and ATS host. Parallel workers: `APPLY_WORKERS=3`.
 - **10,000+ company career sites:** every search also scans 10,448 recently active Greenhouse, Lever, Ashby, Workable and Recruitee boards (public APIs), on top of LinkedIn/Indeed/Glassdoor/ZipRecruiter and free feeds.
 - **Jobs dashboard + one-click Auto Apply:** filters on top, match-scored job cards, live Reviewing → Applying → Applied/Failed status, and an Auto Apply button that queues every job on screen.
 - **Accounts:** email/password sign-up and **Sign in with Google**. Every user's data is fully isolated.

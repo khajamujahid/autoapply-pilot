@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block title %}Monitor{% endblock %}{% block body %}
+<h1>Failure monitor</h1><p class="sub">Why applications did not submit, so each cause can be fixed. Nothing here is ever counted as Applied.</p>
+<div class="grid g2"><div class="card"><h2>By status</h2><table>{% for k,v in stats.by_status %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>By reason</h2><table>{% for k,v in stats.by_reason %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% else %}<tr><td class="muted">No failures 🎉</td></tr>{% endfor %}</table></div>
+<div class="card"><h2>By ATS host</h2><table>{% for k,v in stats.by_host %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table></div></div>
+<div class="card"><h2>Recent (50)</h2><table><tr><th>Job</th><th>Status</th><th>Reason</th><th></th></tr>
+{% for a in recent %}<tr><td><a href="/applications/{{ a.id }}">{{ a.company }} – {{ a.title }}</a></td><td>{{ a.status }}</td><td class="small">{{ (a.error or '')[:180] }}</td>
+<td><form method="post" action="/applications/{{ a.id }}/prefill"><button class="btn sec">Open &amp; prefill</button></form></td></tr>{% endfor %}</table></div>
+{% endblock %}

@@ -41,6 +41,38 @@ GROUPS_JS = r"""
 """
 
 
+import threading
+_tl = threading.local()
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+
+
+def _browser():
+    """One Chromium per worker thread, reused across applications (saves ~2-4 s per job)."""
+    b = getattr(_tl, "browser", None)
+    if b is None or not b.is_connected():
+        if getattr(_tl, "pw", None) is None:
+            _tl.pw = sync_playwright().start()
+        _tl.browser = _tl.pw.chromium.launch(headless=HEADLESS)
+    return _tl.browser
+
+
+def new_context():
+    ctx = _browser().new_context(viewport={"width": 1280, "height": 900}, locale="en-US", user_agent=UA)
+    # skip images/fonts/media: forms load much faster
+    ctx.route("**/*", lambda r: r.abort() if r.request.resource_type in ("image", "media", "font") else r.continue_())
+    return ctx
+
+
+def shutdown_browser():
+    for name in ("browser", "pw"):
+        o = getattr(_tl, name, None)
+        try:
+            o and (o.close() if name == "browser" else o.stop())
+        except Exception:
+            pass
+        setattr(_tl, name, None)
+
+
 class SubmitError(Exception):
     def __init__(self, code, msg, shots=None):
         super().__init__(msg); self.code, self.shots = code, shots or []
@@ -270,44 +302,50 @@ class BaseSubmitter:
         raise SubmitError("SUBMIT_BUTTON_NOT_FOUND", "Could not find the submit button")
 
     def run(self) -> dict:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=HEADLESS)
-            ctx = browser.new_context(viewport={"width": 1280, "height": 900}, locale="en-US",
-                                      user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36")
-            page = ctx.new_page()
-            try:
-                self.open(page)
-                self.fill_form(page)
-                self.fill_generic(page)
-                page.wait_for_timeout(800)
-                self.shot(page, "filled")
-                self.missing = self.unfilled_required(page)
-                if self.missing:
-                    self.log.append("Unfilled required: " + " | ".join(self.missing))
-                if self.dry_run:
-                    return self._result(False)
-                if self.missing:
-                    raise NeedsManual("REQUIRED_UNANSWERED", "Required fields left blank instead of guessing: " + "; ".join(self.missing[:8]))
-                self.submit(page)
-                self.shot(page, "after_submit")
-                if self.captcha_present(page):
-                    raise NeedsManual("CAPTCHA", "A CAPTCHA appeared on submit. Open the link, solve it and submit manually.")
-                body = page.inner_text("body").lower()
-                if re.search(r"thank you|application (has been )?(received|submitted)|we.ve received", body):
-                    return self._result(True)
-                if re.search(r"required|can't be blank|is invalid|please (fill|complete)", body):
-                    raise NeedsManual("VALIDATION", "The form reported missing/invalid fields after submit.")
-                return self._result(True, confirmed=False)
-            except SubmitError as e:
-                try: self.shot(page, "error")
-                except Exception: pass
-                e.shots = self.shots; raise
-            except Exception as e:
-                try: self.shot(page, "error")
-                except Exception: pass
-                raise SubmitError("SUBMITTER_ERROR", str(e)[:500], self.shots)
-            finally:
-                browser.close()
+        ctx = new_context()
+        page = ctx.new_page()
+        try:
+            return self._flow(page)
+        finally:
+            try: ctx.close()
+            except Exception: pass
+
+    def _flow(self, page) -> dict:
+        try:
+            self.open(page)
+            if self.captcha_present(page):
+                raise NeedsManual("CAPTCHA", "The page shows a CAPTCHA before the form. Open the link and apply there.")
+            self.fill_form(page)
+            self.fill_generic(page)
+            page.wait_for_timeout(500)
+            self.shot(page, "filled")
+            self.missing = self.unfilled_required(page)
+            if self.missing:
+                self.log.append("Unfilled required: " + " | ".join(self.missing))
+            if self.dry_run:
+                return self._result(False)
+            if self.missing:
+                raise NeedsManual("REQUIRED_UNANSWERED", "Required fields left blank instead of guessing (answer them once on "
+                                  "the Application Questions page and retry): " + "; ".join(self.missing[:8]))
+            self.submit(page)
+            self.shot(page, "after_submit")
+            if self.captcha_present(page):
+                raise NeedsManual("CAPTCHA", "A CAPTCHA appeared on submit. Open the link, solve it and submit manually.")
+            body = page.inner_text("body").lower()
+            if re.search(r"thank you|application (has been )?(received|submitted)|we.ve received|successfully (applied|submitted)", body):
+                return self._result(True)
+            if re.search(r"required|can't be blank|is invalid|please (fill|complete)", body):
+                raise NeedsManual("VALIDATION", "The form reported missing/invalid fields after submit.")
+            return self._result(True, confirmed=False)
+        except SubmitError as e:
+            try: self.shot(page, "error")
+            except Exception: pass
+            e.shots = self.shots; raise
+        except Exception as e:
+            try: self.shot(page, "error")
+            except Exception: pass
+            code = "SITE_UNREACHABLE" if "net::ERR" in str(e) else "TIMEOUT" if "Timeout" in type(e).__name__ or "timeout" in str(e).lower() else "SUBMITTER_ERROR"
+            raise SubmitError(code, str(e)[:500], self.shots)
 
     def _result(self, submitted, confirmed=True):
         return {"submitted": submitted, "confirmed": confirmed, "screenshots": self.shots, "filled": self.filled, "log": self.log,

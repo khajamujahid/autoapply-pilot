@@ -14,7 +14,9 @@ from .matcher import score
 from .pdf import text_to_pdf
 from .profile import profile_text, full_name
 from .config import DATA_DIR
-from .submitters import SUBMITTERS, SubmitError, NeedsManual
+from .submitters import submitter_for, SubmitError, NeedsManual
+import os
+APPLY_WORKERS = max(1, int(os.getenv('APPLY_WORKERS', '3')))
 
 log = logging.getLogger("worker")
 
@@ -69,6 +71,14 @@ def prepare(a, s):
     x = st.extra or {}
     warns = generate(s, a, prof, ai, tone=x.get("tone", "professional"), lang=x.get("language", "en"))
     render_docs(a, prof, x.get("theme", "ats"))
+    try:  # match after tailoring (the tailored resume only reframes real experience)
+        import types
+        m2 = score(types.SimpleNamespace(data=prof.data, resume_text=(prof.resume_text or "") + "\n" + (a.tailored_resume or "")),
+                   a.title, a.job_description)
+        a.match_details = dict(a.match_details or {}, score_after_tailoring=m2["score"])
+        note(a, f"Match after tailoring: {m['score']} → {m2['score']}")
+    except Exception:
+        log.exception("rescore failed")
     covered = sum(1 for r in a.requirements or [] if r["covered"])
     note(a, f"Resume, cover letter and email drafted with {st.ai_provider}; requirements covered {covered}/{len(a.requirements or [])}"
          + (". Check: " + " | ".join(warns) if warns else ""))
@@ -98,10 +108,20 @@ def _art(a):
 
 def apply(a, s):
     st, prof = s.get(Settings, a.user_id), s.get(Profile, a.user_id)
-    cls = SUBMITTERS.get(a.ats)
-    if not cls:
-        a.status = "FAILED" if a.auto_apply else "NEEDS_MANUAL"; a.error = f"UNSUPPORTED_ATS: no auto-apply for '{a.ats}'. Apply manually: {a.apply_url or a.url}"
-        note(a, a.error); s.commit(); return
+    from .ats import detect, resolve, AGGREGATORS, host
+    target = a.apply_url or a.url
+    if a.ats in ("unknown", "greenhouse_short") or a.ats in AGGREGATORS or not a.apply_url:
+        real = resolve(target)
+        if real != target:
+            note(a, f"Resolved apply link → {real}")
+        target = real
+    ats, _ = detect(target)
+    if ats in AGGREGATORS:
+        a.apply_url = target
+        raise NeedsManual("AGGREGATOR_EASY_APPLY", f"{host(target)} only allows applying inside its own signed-in site "
+                          "(Easy Apply) and gives no employer link. Open the link and apply there; your tailored resume is ready.")
+    a.apply_url, a.ats = target, ats
+    cls = submitter_for(ats)
     creds = {c.site: (c.username, dec(c.password_enc)) for c in s.scalars(select(Credential).where(Credential.user_id == a.user_id))}
     ai = Provider(AIConfig.from_settings(st))
     ans = Answerer(prof, ai, a.cover_letter)
@@ -137,8 +157,7 @@ def apply(a, s):
 def _run(fn, a, s):
     _run_inner(fn, a, s)
     a = s.get(Application, a.id)
-    if a is not None and a.auto_apply and a.status == "NEEDS_MANUAL":
-        a.status = "FAILED"; s.commit()  # Auto Apply shows an honest Failed (with the reason), never a pending limbo
+    # NEEDS_MANUAL stays as-is: an honest "needs you" with the exact reason and an Open & prefill button.
 
 
 def _run_inner(fn, a, s):
@@ -197,8 +216,26 @@ def loop(stop=None):
             log.exception("worker loop error"); time.sleep(5)
 
 
+def apply_loop(stop=None):
+    """Extra submit-only workers: claim APPROVED jobs in parallel (claim() is atomic, so no double-apply)."""
+    while not (stop and stop.is_set()):
+        try:
+            with SessionLocal() as s:
+                over = [u for (u, lim) in s.execute(select(Settings.user_id, Settings.daily_limit)).all()
+                        if not s.get(Settings, u).dry_run and applied_today(s, u) >= lim]
+                a = claim(s, "APPROVED", "APPLYING", over)
+                if a:
+                    _run(apply, a, s); continue
+            time.sleep(2)
+        except Exception:
+            log.exception("apply loop error"); time.sleep(5)
+
+
 def start_background():
-    t = threading.Thread(target=loop, daemon=True, name="worker"); t.start(); return t
+    t = threading.Thread(target=loop, daemon=True, name="worker"); t.start()
+    for i in range(APPLY_WORKERS - 1):
+        threading.Thread(target=apply_loop, daemon=True, name=f"apply-{i + 1}").start()
+    return t
 
 
 if __name__ == "__main__":
@@ -206,3 +243,47 @@ if __name__ == "__main__":
     from .config import LOG_LEVEL, LOG_FORMAT
     setup_logging(LOG_LEVEL, LOG_FORMAT)
     init_db(); log.info("worker started"); loop()
+
+
+def failure_stats(s, user_id):
+    """Counts of non-submitted outcomes by reason code and by ATS host, for the /monitor page."""
+    from collections import Counter
+    from .ats import host
+    rows = s.execute(select(Application.status, Application.error, Application.apply_url, Application.url, Application.ats)
+                     .where(Application.user_id == user_id)).all()
+    by_status, by_reason, by_host = Counter(), Counter(), Counter()
+    for st, err, au, u, ats in rows:
+        by_status[st] += 1
+        if st in ("FAILED", "NEEDS_MANUAL"):
+            code = (err or "UNKNOWN").split(":")[0].strip()[:40] or "UNKNOWN"
+            by_reason[code] += 1; by_host[f"{host(au or u)} ({ats})"] += 1
+    return {"by_status": by_status.most_common(), "by_reason": by_reason.most_common(), "by_host": by_host.most_common(30)}
+
+
+def prefill_visible(app_id):
+    """Self-hosted only: open a VISIBLE browser on the real form, fill everything, and leave it for the user to
+    review/solve CAPTCHA/submit. Never clicks submit."""
+    def _go():
+        from playwright.sync_api import sync_playwright
+        from .submitters.universal import UniversalSubmitter
+        with SessionLocal() as s:
+            a = s.get(Application, app_id); st, prof = s.get(Settings, a.user_id), s.get(Profile, a.user_id)
+            ans = Answerer(prof, Provider(AIConfig.from_settings(st)), a.cover_letter)
+            sub = submitter_for(a.ats)(a, prof, ans, a.tailored_resume_pdf or prof.resume_path,
+                                       {c.site: (c.username, dec(c.password_enc)) for c in
+                                        s.scalars(select(Credential).where(Credential.user_id == a.user_id))}, dry_run=True)
+            with sync_playwright() as pw:
+                b = pw.chromium.launch(headless=False); page = b.new_page()
+                try:
+                    sub.open(page)
+                    try:
+                        sub.fill_form(page)
+                    except SubmitError:
+                        pass
+                    UniversalSubmitter.fill_standard(sub, page) if hasattr(sub, "fill_standard") else None
+                    sub.fill_generic(page)
+                except Exception:
+                    log.exception("prefill")
+                page.wait_for_event("close", timeout=0)
+                b.close()
+    threading.Thread(target=_go, daemon=True).start()

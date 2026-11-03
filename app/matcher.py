@@ -25,8 +25,7 @@ def score(prof, title: str, jd: str) -> dict:
     hit = [s for s in skills if re.search(r"(?<![a-z0-9])" + re.escape(s) + r"(?![a-z0-9])", jd_l)]
     skill_pct = len(hit) / len(skills) if skills else 0.0
     sim = cosine(toks((prof.resume_text or "") + " " + str(d.get("skills", ""))), toks(title + " " + jd))
-    m = re.search(r"(\d{1,2})\+?\s*(?:-\s*\d+\s*)?years?", jd_l)
-    req = int(m.group(1)) if m else None
+    req = years_required(jd_l)
     try:
         yrs = float(d.get("years_experience") or 0)
     except ValueError:
@@ -37,3 +36,25 @@ def score(prof, title: str, jd: str) -> dict:
     total = 100 * (0.45 * skill_pct + 0.25 * min(1.0, sim * 2.5) + 0.2 * exp_fit + 0.1 * sen)
     return {"score": round(total, 1), "matched_skills": hit, "missing_skills": [s for s in skills if s not in hit],
             "required_years": req, "similarity": round(sim, 3), "experience_fit": round(exp_fit, 2), "seniority_fit": round(sen, 2)}
+
+
+_YRS = re.compile(r"(?<![\d$.,])(\d{1,2})(?:\.\d)?\s*(?:\+|plus)?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?\+?\s*(?:or more\s+)?(?:years?|yrs?)\b"
+                  r"(?![\s-]*(?:old|of age))", re.I)
+
+
+def years_required(text: str):
+    """Years of experience the posting asks for. Ignores ages, dollar amounts, '70 years of history' etc.
+    Prefers numbers near 'experience'; caps at 20. Returns the smallest plausible requirement or None."""
+    t = (text or "").lower()
+    near, other = [], []
+    for mm in _YRS.finditer(t):
+        n = int(mm.group(1))
+        if not 0 < n <= 20:
+            continue
+        ctx = t[max(0, mm.start() - 60): mm.end() + 60]
+        if re.search(r"\b(?:founded|history|serving|in business|anniversary|old|age|legacy|over the (?:past|last))\b", ctx) \
+                and "experience" not in ctx:
+            continue
+        (near if re.search(r"experien|minimum|at least|required|professional", ctx) else other).append(n)
+    vals = near or other
+    return min(vals) if vals else None

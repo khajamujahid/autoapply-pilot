@@ -10,7 +10,16 @@ PATTERNS = [
 ]
 OTHER = {"icims.com": "icims", "jobvite.com": "jobvite", "smartrecruiters.com": "smartrecruiters",
          "workable.com": "workable", "bamboohr.com": "bamboohr", "rippling.com": "rippling",
-         "recruitee.com": "recruitee", "breezy.hr": "breezyhr", "teamtailor.com": "teamtailor"}
+         "recruitee.com": "recruitee", "breezy.hr": "breezyhr", "teamtailor.com": "teamtailor",
+         "taleo.net": "taleo", "successfactors": "successfactors", "avature.net": "avature", "ultipro.com": "ultipro",
+         "ukg.com": "ultipro", "contacthr.com": "contacthr", "paylocity.com": "paylocity", "adp.com": "adp",
+         "jazzhr.com": "jazzhr", "applytojob.com": "jazzhr", "oraclecloud.com": "oracle", "dayforcehcm.com": "dayforce",
+         "linkedin.com": "linkedin", "glassdoor.": "glassdoor", "indeed.com": "indeed", "ziprecruiter.com": "ziprecruiter",
+         "dice.com": "dice", "grnh.se": "greenhouse_short"}
+# Job aggregators: the real application lives elsewhere (or behind the site's own login / Easy Apply).
+AGGREGATORS = {"linkedin", "glassdoor", "indeed", "ziprecruiter", "dice"}
+# Need an account on the employer's portal before the form appears.
+ACCOUNT_PORTALS = {"workday", "taleo", "successfactors", "icims", "oracle", "avature", "adp", "dayforce"}
 SUPPORTED = {"greenhouse", "lever", "ashby", "workday"}
 
 
@@ -30,3 +39,42 @@ def detect(url: str):
         if dom in host:
             return ats, {}
     return "unknown", {}
+
+
+def host(url: str) -> str:
+    return urlparse(url or "").netloc.lower().removeprefix("www.")
+
+
+def resolve(url: str, client=None) -> str:
+    """Follow short links / redirects (grnh.se, lnkd.in, tracking links) and pull the employer's apply link out of
+    aggregator pages (LinkedIn 'applyUrl', Glassdoor/Indeed redirects). Returns the best URL to apply on."""
+    import httpx
+    import re as _re
+    from html import unescape
+    own = client is None
+    c = client or httpx.Client(follow_redirects=True, timeout=20,
+                               headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36"})
+    try:
+        r = c.get(url)
+        final = str(r.url)
+        ats = detect(final)[0]
+        if ats in AGGREGATORS:
+            html = unescape(r.text or "")
+            for rx in (r'<code id="applyUrl"[^>]*><!--"?(https?[^"<]+?)"?--></code>', r'"applyUrl"\s*:\s*"(https?[^"]+)"',
+                       r'"(?:companyApplyUrl|externalApplyUrl|applyLink)"\s*:\s*"(https?[^"]+)"'):
+                m = _re.search(rx, html)
+                if m:
+                    ext = m.group(1).encode().decode("unicode_escape") if "\\u" in m.group(1) else m.group(1)
+                    if "linkedin.com/jobs" in ext and "externalApply" in ext:
+                        from urllib.parse import parse_qs as _pq
+                        ext = (_pq(urlparse(ext).query).get("url") or [ext])[0]
+                    try:
+                        return str(c.get(ext).url)
+                    except Exception:
+                        return ext
+        return final
+    except Exception:
+        return url
+    finally:
+        if own:
+            c.close()

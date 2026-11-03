@@ -62,3 +62,44 @@ def test_captcha_goes_needs_manual(tmp_path):
         sub.run()
     assert "first_name" in sub.filled and any("sponsorship" in f for f in sub.filled)
     assert any("Gender" in f and "Decline" in f for f in sub.filled)
+
+
+def test_years_required_v16():
+    from app.matcher import years_required as y
+    assert y("Travelers: 70 years of history. 6+ years of experience required") == 6
+    assert y("3-5 years of professional experience") == 3
+    assert y("must be 18 years old") is None and y("salary $70 years") is None
+    assert y("no number here") is None
+
+
+def test_detect_v16():
+    from app.ats import detect, AGGREGATORS
+    for u, a in [("https://travelersindex.contacthr.com/1", "contacthr"), ("https://deloitteus.avature.net/x", "avature"),
+                 ("https://recruiting2.ultipro.com/A/JobBoard/x", "ultipro"), ("https://www.linkedin.com/jobs/view/1", "linkedin"),
+                 ("https://www.glassdoor.com/job-listing/j?jl=1", "glassdoor"), ("https://grnh.se/abc", "greenhouse_short")]:
+        assert detect(u)[0] == a
+    assert "linkedin" in AGGREGATORS
+
+
+def test_submitter_for_never_unsupported():
+    from app.submitters import submitter_for, UniversalSubmitter, SUBMITTERS
+    assert submitter_for("contacthr") is UniversalSubmitter and submitter_for("unknown") is UniversalSubmitter
+    assert submitter_for("greenhouse") is SUBMITTERS["greenhouse"]
+
+
+def test_universal_fills_local_form(tmp_path):
+    """Universal filler on a local multi-step form behind an Apply button (no network, dry run)."""
+    from app.submitters.universal import UniversalSubmitter
+    html = tmp_path / "job.html"
+    html.write_text("""<html><body><h1>Job</h1><a href='form.html'>Apply now</a></body></html>""")
+    (tmp_path / "form.html").write_text("""<form><label for=f>First Name *</label><input id=f required>
+      <label for=l>Last Name</label><input id=l><label for=e>Email</label><input id=e type=email>
+      <label for=p>Phone</label><input id=p><label>Resume<input type=file id=r></label>
+      <button type=submit>Submit Application</button></form>""")
+    res = tmp_path / "r.pdf"; res.write_bytes(b"%PDF-1.4\n%%EOF")
+    app = types.SimpleNamespace(apply_url=html.as_uri(), url=html.as_uri(), user_id=0, id=9999)
+    prof = types.SimpleNamespace(data={"first_name": "Alex", "last_name": "Kim", "email": "a@x.io", "phone": "555"},
+                                 answers=default_answers(), resume_text="x")
+    ans = Answerer(prof, Provider(AIConfig()), "")
+    r = UniversalSubmitter(app, prof, ans, str(res), dry_run=True).run()
+    assert not r["submitted"] and {"first_name", "last_name", "email", "phone", "resume"} <= set(r["filled"])

@@ -90,7 +90,7 @@ def cover_builtin(prof, reqs):
         hit = [s for s in skills if _has(r, s)]
         rw = set(_words(r)); pw = set(_words(ptxt))
         overlap = len(rw & pw) / len(rw) if rw else 0
-        ym = re.search(r"(\d{1,2})\+?\s*years", r.lower())
+        ym = re.search(r"(?<![\d$])([1-9]|1\d|20)\+?\s*years", r.lower())
         yrs_ok = True
         if ym:
             try:
